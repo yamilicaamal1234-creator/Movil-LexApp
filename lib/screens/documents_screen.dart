@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../core/theme/app_colors.dart';
+import '../widgets/document_viewer_modal.dart';
 
 class DocumentsScreen extends StatefulWidget {
   const DocumentsScreen({super.key});
@@ -158,56 +159,77 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
           ),
           const SizedBox(height: 10),
           ...[..._uploadedFiles, ...files].map(
-            (file) => Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
+            (file) => Material(
+              color: Colors.transparent,
+              child: InkWell(
                 borderRadius: BorderRadius.circular(16),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: file.$3.withValues(alpha: .1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(file.$2, color: file.$3),
+                onTap: () => DocumentViewerModal.show(
+                  context,
+                  title: file.$4,
+                  subtitle: '${file.$1} · ${file.$5}',
+                  docType: file.$1,
+                  allowSign: file.$4.toLowerCase().contains('contrato'),
+                ),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.line),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          file.$4,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: file.$3.withValues(alpha: .1),
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                        Text(
-                          '${file.$1} · ${file.$5}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.slate,
-                          ),
+                        child: Icon(file.$2, color: file.$3),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              file.$4,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              '${file.$1} · ${file.$5}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.slate,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                      IconButton(
+                        tooltip: 'Ver y descargar',
+                        onPressed: () => DocumentViewerModal.show(
+                          context,
+                          title: file.$4,
+                          subtitle: '${file.$1} · ${file.$5}',
+                          docType: file.$1,
+                          allowSign: file.$4.toLowerCase().contains('contrato'),
+                        ),
+                        icon: const Icon(
+                          Icons.download_rounded,
+                          color: AppColors.emerald,
+                        ),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    onPressed: () {},
-                    icon: const Icon(
-                      Icons.download_rounded,
-                      color: AppColors.emerald,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

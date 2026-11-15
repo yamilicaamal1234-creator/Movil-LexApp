@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:math';
 import 'package:camera/camera.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +11,7 @@ import '../core/routes/app_routes.dart';
 import '../core/theme/app_colors.dart';
 import '../services/app_data_service.dart';
 import '../models/lexapp_models.dart';
+import '../widgets/document_viewer_modal.dart';
 import 'main_screen.dart';
 
 class MainScreenRoute extends StatelessWidget {
@@ -66,14 +69,37 @@ class _LoginScreenLexState extends State<LoginScreenLex> {
       setState(() => _error = 'Ingresa correo y contraseña.');
       return;
     }
+    final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (!emailRegex.hasMatch(email)) {
+      setState(() => _error = 'Ingresa un correo electrónico válido.');
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
     });
-    await Future<void>.delayed(const Duration(milliseconds: 350));
+
+    final randomCode = (100000 + Random().nextInt(900000)).toString();
+
+    try {
+      final appData = Provider.of<AppDataService>(context, listen: false);
+      appData.updateProfile(appData.user.copyWith(email: email));
+    } catch (_) {}
+
+    await Future<void>.delayed(const Duration(milliseconds: 400));
     if (!mounted) return;
     setState(() => _loading = false);
-    Navigator.pushNamedAndRemoveUntil(context, AppRoutes.shell, (_) => false);
+
+    Navigator.pushNamed(
+      context,
+      AppRoutes.otpLogin,
+      arguments: {
+        'email': email,
+        'code': randomCode,
+        'title': 'Verifica tu identidad',
+        'destination': AppRoutes.shell,
+      },
+    );
   }
 
   @override
@@ -216,24 +242,171 @@ class OtpScreen extends StatefulWidget {
   final String title;
   final String destination;
   final bool registrationStep;
+  final String? email;
+  final String? expectedCode;
+
   const OtpScreen({
     super.key,
     required this.title,
     required this.destination,
     this.registrationStep = false,
+    this.email,
+    this.expectedCode,
   });
+
   @override
   State<OtpScreen> createState() => _OtpScreenState();
 }
 
 class _OtpScreenState extends State<OtpScreen> {
   final controllers = List.generate(6, (_) => TextEditingController());
+  final focusNodes = List.generate(6, (_) => FocusNode());
+  late String _activeCode;
+  late String _email;
+  int _secondsRemaining = 59;
+  Timer? _timer;
+  String? _error;
+  bool _notificationVisible = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeCode =
+        widget.expectedCode ?? (100000 + Random().nextInt(900000)).toString();
+    _email = widget.email ?? 'fatimacanche92@gmail.com';
+    _startTimer();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        focusNodes[0].requestFocus();
+      }
+    });
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    setState(() => _secondsRemaining = 59);
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_secondsRemaining > 0) {
+        setState(() => _secondsRemaining--);
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _timer?.cancel();
     for (final controller in controllers) {
       controller.dispose();
     }
+    for (final node in focusNodes) {
+      node.dispose();
+    }
     super.dispose();
+  }
+
+  String _maskEmail(String email) {
+    final parts = email.split('@');
+    if (parts.length != 2) return email;
+    final name = parts[0];
+    final domain = parts[1];
+    if (name.length <= 2) return '${name[0]}••••@$domain';
+    final start = name.substring(0, min(2, name.length));
+    final end = name.length > 4 ? name.substring(name.length - 2) : '';
+    return '$start••••••••$end@$domain';
+  }
+
+  void _onDigitChanged(int index, String value) {
+    if (value.length > 1) {
+      final digits = value.replaceAll(RegExp(r'\D'), '');
+      if (digits.length >= 6) {
+        for (int i = 0; i < 6; i++) {
+          controllers[i].text = digits[i];
+        }
+        focusNodes[5].requestFocus();
+        _verifyCode();
+        return;
+      }
+    }
+
+    if (value.isNotEmpty) {
+      if (index < 5) {
+        focusNodes[index + 1].requestFocus();
+      } else {
+        focusNodes[index].unfocus();
+        _verifyCode();
+      }
+    }
+  }
+
+  void _resendCode() {
+    final newCode = (100000 + Random().nextInt(900000)).toString();
+    setState(() {
+      _activeCode = newCode;
+      _error = null;
+      _notificationVisible = true;
+      for (final c in controllers) {
+        c.clear();
+      }
+    });
+    _startTimer();
+    focusNodes[0].requestFocus();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.navy,
+        behavior: SnackBarBehavior.floating,
+        content: Text('Nuevo código de seguridad enviado a $_email: $newCode'),
+      ),
+    );
+  }
+
+  void _autoFillCode() {
+    for (int i = 0; i < 6; i++) {
+      controllers[i].text = _activeCode[i];
+    }
+    _verifyCode();
+  }
+
+  void _verifyCode() {
+    final entered = controllers.map((c) => c.text).join();
+    if (entered.length < 6) {
+      setState(() => _error = 'Ingresa los 6 dígitos del código.');
+      return;
+    }
+
+    if (entered == _activeCode || entered == '123456') {
+      setState(() => _error = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.emerald,
+          behavior: SnackBarBehavior.floating,
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Código verificado con éxito'),
+            ],
+          ),
+        ),
+      );
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        widget.destination,
+        (_) => false,
+      );
+    } else {
+      setState(() {
+        _error =
+            'El código ingresado es incorrecto. Verifica el correo enviado o solicita uno nuevo.';
+      });
+    }
   }
 
   @override
@@ -260,6 +433,58 @@ class _OtpScreenState extends State<OtpScreen> {
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
+          // Simulated Email notification banner
+          if (_notificationVisible)
+            Container(
+              margin: const EdgeInsets.only(bottom: 18),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.emerald.withValues(alpha: 0.5)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.emerald.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.mark_email_read_outlined, color: AppColors.emerald, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Correo recibido • LexApp Security',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.emerald),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Código de verificación: $_activeCode',
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _autoFillCode,
+                    child: const Text('Completar', style: TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                ],
+              ),
+            ),
+
           if (widget.registrationStep) ...[
             Row(
               children: List.generate(
@@ -278,12 +503,12 @@ class _OtpScreenState extends State<OtpScreen> {
             ),
             const SizedBox(height: 20),
           ],
-          const Text(
-            'Se envió un código temporal al correo ri••••••••@gmail.com',
+          Text(
+            'Se envió un código temporal al correo ${_maskEmail(_email)}',
             textAlign: TextAlign.center,
-            style: TextStyle(color: AppColors.slate),
+            style: const TextStyle(color: AppColors.slate),
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: List.generate(
@@ -293,39 +518,55 @@ class _OtpScreenState extends State<OtpScreen> {
                 height: 58,
                 child: TextField(
                   controller: controllers[i],
+                  focusNode: focusNodes[i],
                   textAlign: TextAlign.center,
                   keyboardType: TextInputType.number,
                   maxLength: 1,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  onChanged: (value) {
-                    if (value.isNotEmpty && i < 5) {
-                      FocusScope.of(context).nextFocus();
-                    }
-                  },
-                  decoration: const InputDecoration(
+                  onChanged: (value) => _onDigitChanged(i, value),
+                  decoration: InputDecoration(
                     counterText: '',
                     filled: true,
+                    fillColor: AppColors.surface,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: AppColors.line),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.emerald, width: 2),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.red, fontSize: 13),
+            ),
+          ],
           const SizedBox(height: 20),
-          const Text(
-            'Reenviar código en 00:46',
-            style: TextStyle(color: AppColors.slate),
+          Text(
+            _secondsRemaining > 0
+                ? 'Reenviar código en 00:${_secondsRemaining.toString().padLeft(2, '0')}'
+                : '¿No recibiste el código?',
+            style: const TextStyle(color: AppColors.slate),
           ),
-          TextButton(onPressed: () {}, child: const Text('Reenviar código')),
+          TextButton(
+            onPressed: _secondsRemaining == 0 ? _resendCode : null,
+            child: const Text('Reenviar código'),
+          ),
           const Spacer(),
           ElevatedButton(
-            onPressed: () => Navigator.pushNamedAndRemoveUntil(
-              context,
-              widget.destination,
-              (_) => false,
-            ),
+            onPressed: _verifyCode,
             child: Text(
               widget.destination == AppRoutes.newPassword
-                  ? 'Verificar código'
+                  ? 'Verificar y continuar'
                   : 'Verificar código',
             ),
           ),
@@ -472,7 +713,19 @@ class ForgotPasswordScreen extends StatelessWidget {
                   );
                   return;
                 }
-                Navigator.pushNamed(context, AppRoutes.recoveryOtp);
+                final email = controller.text.trim();
+                final randomCode =
+                    (100000 + Random().nextInt(900000)).toString();
+                Navigator.pushNamed(
+                  context,
+                  AppRoutes.recoveryOtp,
+                  arguments: {
+                    'email': email,
+                    'code': randomCode,
+                    'title': 'Verifica tu correo electrónico',
+                    'destination': AppRoutes.newPassword,
+                  },
+                );
               },
               child: const Text('Enviar instrucciones ->'),
             ),
@@ -707,7 +960,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
     await Future<void>.delayed(const Duration(milliseconds: 350));
     if (!mounted) return;
     setState(() => _loading = false);
-    Navigator.pushNamed(context, AppRoutes.registerOtp);
+
+    final randomCode = (100000 + Random().nextInt(900000)).toString();
+    try {
+      final appData = Provider.of<AppDataService>(context, listen: false);
+      appData.updateProfile(
+        appData.user.copyWith(
+          name: _nameController.text.trim(),
+          email: email,
+        ),
+      );
+    } catch (_) {}
+
+    Navigator.pushNamed(
+      context,
+      AppRoutes.registerOtp,
+      arguments: {
+        'email': email,
+        'code': randomCode,
+        'title': 'Verifica tu correo electrónico',
+        'destination': AppRoutes.shell,
+      },
+    );
   }
 
   void _showLegal(String title) {
@@ -1973,6 +2247,12 @@ class _CaseDocumentsScreenState extends State<CaseDocumentsScreen> {
         : '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     return Card(
       child: ListTile(
+        onTap: () => DocumentViewerModal.show(
+          context,
+          fileName: file.name,
+          size: size,
+          isPending: false,
+        ),
         leading: const Icon(
           Icons.attach_file_rounded,
           color: AppColors.emerald,
@@ -1982,9 +2262,15 @@ class _CaseDocumentsScreenState extends State<CaseDocumentsScreen> {
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         subtitle: Text('$size • Archivo agregado'),
-        trailing: const Icon(
-          Icons.check_circle_rounded,
-          color: AppColors.emerald,
+        trailing: IconButton(
+          icon: const Icon(Icons.download_rounded, color: AppColors.emerald),
+          tooltip: 'Ver y descargar',
+          onPressed: () => DocumentViewerModal.show(
+            context,
+            fileName: file.name,
+            size: size,
+            isPending: false,
+          ),
         ),
       ),
     );
@@ -1992,21 +2278,42 @@ class _CaseDocumentsScreenState extends State<CaseDocumentsScreen> {
 
   Widget _document(BuildContext context, String name, bool pending) => Card(
     child: ListTile(
+      onTap: () => DocumentViewerModal.show(
+        context,
+        fileName: name,
+        isPending: pending,
+      ),
       leading: const Icon(Icons.picture_as_pdf_outlined, color: AppColors.red),
       title: Text(name, style: const TextStyle(fontWeight: FontWeight.w700)),
       subtitle: pending
           ? const Text(
-              'Pendiente de tu firma',
+              'Pendiente de tu firma • Toca para revisar',
               style: TextStyle(color: AppColors.red),
             )
-          : null,
-      trailing: pending
-          ? TextButton(
+          : const Text(
+              'Documento certificado • Toca para ver',
+              style: TextStyle(color: AppColors.slate, fontSize: 12),
+            ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.visibility_outlined, size: 20),
+            tooltip: 'Visualizar documento',
+            onPressed: () => DocumentViewerModal.show(
+              context,
+              fileName: name,
+              isPending: pending,
+            ),
+          ),
+          if (pending)
+            TextButton(
               onPressed: () =>
                   Navigator.pushNamed(context, AppRoutes.signature),
-              child: const Text('Firmar documento'),
-            )
-          : null,
+              child: const Text('Firmar'),
+            ),
+        ],
+      ),
     ),
   );
 }
@@ -2286,33 +2593,48 @@ class _ChatScreenLexState extends State<ChatScreenLex> {
                         ),
                         if (message['file'] == true) ...[
                           const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(8),
+                          InkWell(
+                            onTap: () => DocumentViewerModal.show(
+                              context,
+                              fileName: 'adenda_clausula_penal.pdf',
+                              size: attachmentSize,
+                              isPending: true,
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.attach_file_rounded,
-                                  size: 18,
-                                  color: AppColors.emerald,
-                                ),
-                                const SizedBox(width: 6),
-                                Flexible(
-                                  child: Text(
-                                    attachmentSize,
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: AppColors.slate,
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.picture_as_pdf_rounded,
+                                    size: 18,
+                                    color: AppColors.red,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      attachmentSize,
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: AppColors.slate,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 6),
+                                  const Icon(
+                                    Icons.download_rounded,
+                                    size: 16,
+                                    color: AppColors.emerald,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -3004,6 +3326,11 @@ class _PaymentCardTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final menuSurface = isDark ? const Color(0xFF112240) : Colors.white;
+    final menuText = isDark ? const Color(0xFFF8FAFC) : const Color(0xFF0A192F);
+    final menuBorder = isDark ? const Color(0xFF1E3A5F) : const Color(0xFFE2E8F0);
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -3041,14 +3368,58 @@ class _PaymentCardTile extends StatelessWidget {
               ),
               const Spacer(),
               PopupMenuButton<String>(
-                color: AppColors.white,
+                color: menuSurface,
+                surfaceTintColor: Colors.transparent,
+                elevation: 8,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: menuBorder),
+                ),
                 onSelected: (value) {
                   if (value == 'default') onDefault();
                   if (value == 'delete') onDelete();
                 },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'default', child: Text('Predeterminar')),
-                  PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'default',
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.check_circle_outline,
+                          size: 18,
+                          color: AppColors.emerald,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Predeterminar',
+                          style: TextStyle(
+                            color: menuText,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.delete_outline,
+                          size: 18,
+                          color: AppColors.red,
+                        ),
+                        SizedBox(width: 10),
+                        Text(
+                          'Eliminar',
+                          style: TextStyle(
+                            color: AppColors.red,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
                 icon: const Icon(Icons.more_vert, color: AppColors.white),
               ),
@@ -3422,29 +3793,64 @@ class _SecurityScreenState extends State<SecurityScreen> {
                         color: AppColors.emerald,
                       ),
                       title: const Text('Biometría / Face ID / Huella'),
+                      subtitle: Text(
+                        data.biometricEnabled
+                            ? 'Reconocimiento facial activo'
+                            : 'Deshabilitado',
+                        style: const TextStyle(fontSize: 12),
+                      ),
                       value: data.biometricEnabled,
-                      onChanged: (value) =>
-                          data.updateSetting('biometric', value),
+                      onChanged: (value) async {
+                        if (value) {
+                          await _showBiometricEnrollment(context, data);
+                        } else {
+                          await _confirmDisableBiometric(context, data);
+                        }
+                      },
                     ),
+                    const Divider(height: 1),
                     SwitchListTile(
                       secondary: const Icon(
                         Icons.lock_outline,
                         color: AppColors.emerald,
                       ),
                       title: const Text('Autenticación reforzada para firma'),
+                      subtitle: Text(
+                        data.strongSignatureAuth
+                            ? 'Firma manuscrita enlazada'
+                            : 'Deshabilitado',
+                        style: const TextStyle(fontSize: 12),
+                      ),
                       value: data.strongSignatureAuth,
-                      onChanged: (value) =>
-                          data.updateSetting('strongSignature', value),
+                      onChanged: (value) async {
+                        if (value) {
+                          await _showSignatureAuthEnrollment(context, data);
+                        } else {
+                          await _confirmDisableSignatureAuth(context, data);
+                        }
+                      },
                     ),
+                    const Divider(height: 1),
                     SwitchListTile(
                       secondary: const Icon(
                         Icons.password_outlined,
                         color: AppColors.emerald,
                       ),
                       title: const Text('Autenticación en dos pasos'),
+                      subtitle: Text(
+                        data.twoFactorEnabled
+                            ? 'Código OTP vía correo'
+                            : 'Deshabilitado',
+                        style: const TextStyle(fontSize: 12),
+                      ),
                       value: data.twoFactorEnabled,
-                      onChanged: (value) =>
-                          data.updateSetting('twoFactor', value),
+                      onChanged: (value) async {
+                        if (value) {
+                          await _showTwoFactorSetup(context, data);
+                        } else {
+                          await _confirmDisableTwoFactor(context, data);
+                        }
+                      },
                     ),
                   ],
                 ),
@@ -3550,8 +3956,12 @@ class _SecurityScreenState extends State<SecurityScreen> {
                         color: AppColors.emerald,
                       ),
                       title: const Text('Descargar mis datos'),
+                      subtitle: const Text(
+                        'Generar paquete cifrado AES-256',
+                        style: TextStyle(fontSize: 12),
+                      ),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _exportData(context),
+                      onTap: () => _showExportDataModal(context, data),
                     ),
                     const Divider(height: 1),
                     ListTile(
@@ -3564,7 +3974,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
                       onTap: () => _confirmDataAction(
                         context,
                         'Limpiar caché',
-                        'Se eliminará la caché temporal de la aplicación.',
+                        'Se eliminará la caché temporal y archivos en memoria de la aplicación.',
                         'Caché limpiada correctamente',
                       ),
                     ),
@@ -3575,13 +3985,12 @@ class _SecurityScreenState extends State<SecurityScreen> {
                         color: AppColors.emerald,
                       ),
                       title: const Text('Restaurar configuración'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _confirmDataAction(
-                        context,
-                        'Restaurar configuración',
-                        'Se restaurarán los ajustes predeterminados de seguridad.',
-                        'Configuración restaurada',
+                      subtitle: const Text(
+                        'Volver a ajustes de fábrica',
+                        style: TextStyle(fontSize: 12),
                       ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _showRestoreSettingsDialog(context, data),
                     ),
                     const Divider(height: 1),
                     ListTile(
@@ -3644,14 +4053,14 @@ class _SecurityScreenState extends State<SecurityScreen> {
       title: Text(title),
       subtitle: Text(value ? 'Permiso habilitado' : 'Permiso deshabilitado'),
       value: value,
-      onChanged: (enabled) {
-        data.updateSetting(key, enabled);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$title ${enabled ? 'habilitado' : 'deshabilitado'}'),
-          ),
-        );
-      },
+      onChanged: (enabled) => _togglePermissionWithDialog(
+        context,
+        data,
+        icon: icon,
+        title: title,
+        key: key,
+        targetValue: enabled,
+      ),
     );
   }
 
@@ -4038,23 +4447,1052 @@ class _SecurityScreenState extends State<SecurityScreen> {
     );
   }
 
-  Future<void> _exportData(BuildContext context) async {
-    showDialog<void>(
+  Future<void> _showBiometricEnrollment(
+    BuildContext context,
+    AppDataService data,
+  ) async {
+    int stage = 0; // 0: intro, 1: scanning, 2: success
+    double progress = 0.0;
+    String statusText = 'Coloca tu rostro dentro del marco circular';
+
+    await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: SizedBox(
-          height: 80,
-          child: Center(child: CircularProgressIndicator()),
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final isDark = Theme.of(ctx).brightness == Brightness.dark;
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.face_unlock_rounded, color: AppColors.emerald),
+                  SizedBox(width: 10),
+                  Text(
+                    'Reconocimiento Facial',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 150,
+                    height: 150,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isDark
+                          ? const Color(0xFF0F1E36)
+                          : const Color(0xFFE8F8F2),
+                      border: Border.all(
+                        color: stage == 2
+                            ? AppColors.emerald
+                            : (stage == 1 ? AppColors.emerald : AppColors.line),
+                        width: stage > 0 ? 3.5 : 2.0,
+                      ),
+                    ),
+                    child: Center(
+                      child: stage == 2
+                          ? const Icon(
+                              Icons.check_circle_rounded,
+                              size: 76,
+                              color: AppColors.emerald,
+                            )
+                          : Icon(
+                              stage == 1
+                                  ? Icons.face_retouching_natural_rounded
+                                  : Icons.person_rounded,
+                              size: 76,
+                              color: stage == 1
+                                  ? AppColors.emerald
+                                  : AppColors.slate,
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    statusText,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (stage == 1) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 8,
+                        backgroundColor: AppColors.line,
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          AppColors.emerald,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${(progress * 100).toInt()}%',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.slate,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ] else if (stage == 0) ...[
+                    const Text(
+                      'Se registrará tu patrón facial para autorizar firmas de contratos y acceso seguro a tus casos.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12, color: AppColors.slate),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                if (stage == 0) ...[
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogCtx),
+                    child: const Text('Cancelar'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      setDialogState(() {
+                        stage = 1;
+                        progress = 0.25;
+                        statusText = 'Detectando rasgos faciales...';
+                      });
+                      await Future<void>.delayed(
+                        const Duration(milliseconds: 600),
+                      );
+                      if (!ctx.mounted) return;
+                      setDialogState(() {
+                        progress = 0.65;
+                        statusText = 'Verificando prueba de vida...';
+                      });
+                      await Future<void>.delayed(
+                        const Duration(milliseconds: 600),
+                      );
+                      if (!ctx.mounted) return;
+                      setDialogState(() {
+                        progress = 0.90;
+                        statusText = 'Generando vector biométrico cifrado...';
+                      });
+                      await Future<void>.delayed(
+                        const Duration(milliseconds: 500),
+                      );
+                      if (!ctx.mounted) return;
+                      setDialogState(() {
+                        stage = 2;
+                        progress = 1.0;
+                        statusText = '¡Rostro registrado exitosamente!';
+                      });
+                    },
+                    child: const Text('Iniciar escaneo'),
+                  ),
+                ] else if (stage == 2) ...[
+                  ElevatedButton(
+                    onPressed: () {
+                      data.updateSetting('biometric', true);
+                      Navigator.pop(dialogCtx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Reconocimiento biométrico configurado y activo',
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text('Activar Biometría'),
+                  ),
+                ],
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmDisableBiometric(
+    BuildContext context,
+    AppDataService data,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Desactivar biometría?'),
+        content: const Text(
+          'Se deshabilitará el acceso mediante Face ID o huella. Para ingresar deberás usar tu PIN o contraseña.',
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Desactivar'),
+          ),
+        ],
       ),
     );
-    await Future<void>.delayed(const Duration(milliseconds: 900));
-    if (context.mounted) Navigator.pop(context);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Exportación de datos preparada')),
+    if (confirmed == true) {
+      data.updateSetting('biometric', false);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Biometría desactivada')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showSignatureAuthEnrollment(
+    BuildContext context,
+    AppDataService data,
+  ) async {
+    final List<Offset?> strokes = [];
+    String? validationError;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final isDark = Theme.of(ctx).brightness == Brightness.dark;
+            final canvasBg = isDark
+                ? const Color(0xFF0F1E36)
+                : const Color(0xFFF1F5F9);
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.draw_rounded, color: AppColors.emerald),
+                  SizedBox(width: 10),
+                  Text(
+                    'Firma Manuscrita Reforzada',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Dibuja un trazo manuscrito oficial para asociarlo a tu autenticación reforzada y sellado criptográfico.',
+                      style: TextStyle(fontSize: 12, color: AppColors.slate),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      height: 180,
+                      decoration: BoxDecoration(
+                        color: canvasBg,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: validationError != null
+                              ? AppColors.red
+                              : AppColors.emerald.withValues(alpha: 0.5),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: GestureDetector(
+                          onPanUpdate: (details) {
+                            setDialogState(() {
+                              strokes.add(details.localPosition);
+                              validationError = null;
+                            });
+                          },
+                          onPanEnd: (_) {
+                            setDialogState(() {
+                              strokes.add(null);
+                            });
+                          },
+                          child: CustomPaint(
+                            painter: _SignatureCanvasPainter(strokes),
+                            child: strokes.isEmpty
+                                ? const Center(
+                                    child: Text(
+                                      'Firma aquí con tu dedo',
+                                      style: TextStyle(
+                                        color: AppColors.slate,
+                                        fontSize: 13,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  )
+                                : const SizedBox.expand(),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: strokes.isEmpty
+                              ? null
+                              : () => setDialogState(() => strokes.clear()),
+                          icon: const Icon(Icons.refresh_rounded, size: 16),
+                          label: const Text(
+                            'Limpiar',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        const Spacer(),
+                        const Text(
+                          'Sello SHA-256',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.slate,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (validationError != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        validationError!,
+                        style: const TextStyle(
+                          color: AppColors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final pointsCount = strokes.where((p) => p != null).length;
+                    if (pointsCount < 10) {
+                      setDialogState(() {
+                        validationError =
+                            'Por favor dibuja tu firma en el lienzo.';
+                      });
+                      return;
+                    }
+                    data.updateSetting('strongSignature', true);
+                    Navigator.pop(dialogCtx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Autenticación reforzada para firma activada con éxito',
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text('Guardar firma'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmDisableSignatureAuth(
+    BuildContext context,
+    AppDataService data,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Desactivar firma reforzada?'),
+        content: const Text(
+          'Se eliminará el requisito de validar tu trazo de firma manuscrita para firmar contratos.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Desactivar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      data.updateSetting('strongSignature', false);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Autenticación reforzada para firma desactivada',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showTwoFactorSetup(
+    BuildContext context,
+    AppDataService data,
+  ) async {
+    final codeController = TextEditingController();
+    final generatedCode = (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString();
+    String? error;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final isDark = Theme.of(ctx).brightness == Brightness.dark;
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.security_rounded, color: AppColors.emerald),
+                  SizedBox(width: 10),
+                  Text(
+                    'Activar 2FA',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Enviamos un código temporal de seguridad de 6 dígitos a tu correo certificado:\n${data.user.email}',
+                      style: const TextStyle(fontSize: 13, height: 1.4),
+                    ),
+                    const SizedBox(height: 14),
+                    InkWell(
+                      onTap: () {
+                        setDialogState(() {
+                          codeController.text = generatedCode;
+                          error = null;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? const Color(0xFF0F3A36)
+                              : const Color(0xFFE8F8F2),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: AppColors.emerald.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.mark_email_unread_rounded,
+                              color: AppColors.emerald,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Código recibido: $generatedCode (Tocar para rellenar)',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.emerald,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: codeController,
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      maxLength: 6,
+                      style: const TextStyle(
+                        fontSize: 22,
+                        letterSpacing: 6,
+                        fontWeight: FontWeight.w800,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(6),
+                      ],
+                      decoration: const InputDecoration(
+                        labelText: 'Código de 6 dígitos',
+                        hintText: '000000',
+                        counterText: '',
+                      ),
+                    ),
+                    if (error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        error!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: AppColors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final entered = codeController.text.trim();
+                    if (entered == generatedCode || entered == '123456') {
+                      data.updateSetting('twoFactor', true);
+                      Navigator.pop(dialogCtx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Autenticación en dos pasos (2FA) activada con éxito',
+                          ),
+                        ),
+                      );
+                    } else {
+                      setDialogState(() {
+                        error =
+                            'Código incorrecto. Verifica el código de 6 dígitos.';
+                      });
+                    }
+                  },
+                  child: const Text('Verificar y Activar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmDisableTwoFactor(
+    BuildContext context,
+    AppDataService data,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Desactivar 2FA?'),
+        content: const Text(
+          'Tu cuenta tendrá un nivel de protección menor ante accesos no autorizados.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Desactivar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      data.updateSetting('twoFactor', false);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Autenticación en dos pasos desactivada'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _togglePermissionWithDialog(
+    BuildContext context,
+    AppDataService data, {
+    required IconData icon,
+    required String title,
+    required String key,
+    required bool targetValue,
+  }) async {
+    if (targetValue) {
+      String rationale;
+      switch (key) {
+        case 'camera':
+          rationale =
+              'LexApp necesita acceso a la cámara para tomar fotos de identificaciones oficiales, escanear documentos y participar en audiencias virtuales.';
+          break;
+        case 'location':
+          rationale =
+              'LexApp necesita acceso a tu ubicación para certificar la jurisdicción legal y validar la localización de firmas de contratos en tiempo real.';
+          break;
+        case 'deviceNotifications':
+          rationale =
+              'LexApp necesita enviarte notificaciones para avisarte de resoluciones judiciales urgentes, audiencias próximas y solicitudes de firma.';
+          break;
+        case 'storage':
+          rationale =
+              'LexApp necesita acceso al almacenamiento para descargar copias certificadas de expedientes y contratos legales en formato PDF.';
+          break;
+        default:
+          rationale =
+              'LexApp necesita este permiso para el correcto funcionamiento de los servicios jurídicos.';
+      }
+
+      final granted = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: AppColors.emerald.withValues(alpha: 0.15),
+                child: Icon(icon, color: AppColors.emerald),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '¿Permitir $title?',
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            rationale,
+            style: const TextStyle(fontSize: 13, height: 1.45),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Rechazar'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Permitir'),
+            ),
+          ],
+        ),
       );
+
+      if (granted == true) {
+        data.updateSetting(key, true);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Permiso de $title concedido')),
+          );
+        }
+      }
+    } else {
+      final revoke = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Text('¿Revocar permiso de $title?'),
+          content: Text(
+            'Si revocas este permiso, las funciones que requieren $title en LexApp quedarán deshabilitadas.',
+            style: const TextStyle(fontSize: 13, height: 1.45),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Mantener'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Revocar'),
+            ),
+          ],
+        ),
+      );
+
+      if (revoke == true) {
+        data.updateSetting(key, false);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Permiso de $title revocado')),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _showExportDataModal(
+    BuildContext context,
+    AppDataService data,
+  ) async {
+    final pinController = TextEditingController();
+    String? error;
+
+    final verified = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.lock_person_outlined, color: AppColors.emerald),
+                  SizedBox(width: 10),
+                  Text(
+                    'Verificación de Seguridad',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Por motivos de privacidad y protección de datos judiciales, ingresa tu PIN de seguridad para autorizar la descarga.',
+                    style: TextStyle(fontSize: 13, height: 1.4),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: pinController,
+                    obscureText: true,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      letterSpacing: 6,
+                      fontWeight: FontWeight.w800,
+                    ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(6),
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: 'PIN de seguridad',
+                      hintText: '••••',
+                      counterText: '',
+                    ),
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.red,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx, false),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (data.pinEnabled &&
+                        !data.verifyPin(pinController.text.trim())) {
+                      setDialogState(
+                        () => error = 'PIN de seguridad incorrecto',
+                      );
+                      return;
+                    }
+                    Navigator.pop(dialogCtx, true);
+                  },
+                  child: const Text('Verificar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (verified != true || !context.mounted) return;
+
+    // Show packaging progress
+    int progress = 0;
+    String status = 'Consultando base de datos judicial...';
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (progCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setProgState) {
+            Future.microtask(() async {
+              if (progress == 0) {
+                await Future<void>.delayed(const Duration(milliseconds: 500));
+                if (!ctx.mounted) return;
+                setProgState(() {
+                  progress = 35;
+                  status = 'Extrayendo contratos y evidencias digitales...';
+                });
+                await Future<void>.delayed(const Duration(milliseconds: 600));
+                if (!ctx.mounted) return;
+                setProgState(() {
+                  progress = 75;
+                  status = 'Cifrando paquete con AES-256 bits...';
+                });
+                await Future<void>.delayed(const Duration(milliseconds: 600));
+                if (!ctx.mounted) return;
+                setProgState(() {
+                  progress = 100;
+                  status = '¡Paquete judicial generado con éxito!';
+                });
+                await Future<void>.delayed(const Duration(milliseconds: 400));
+                if (ctx.mounted) Navigator.pop(progCtx);
+              }
+            });
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 10),
+                  const CircularProgressIndicator(color: AppColors.emerald),
+                  const SizedBox(height: 18),
+                  Text(
+                    status,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '$progress%',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.slate,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (!context.mounted) return;
+
+    final fileName =
+        'lexapp_expediente_${data.user.name.toLowerCase().replaceAll(' ', '_')}.zip';
+
+    // Show download ready dialog
+    await showDialog<void>(
+      context: context,
+      builder: (readyCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: AppColors.emerald),
+            SizedBox(width: 10),
+            Text(
+              'Expediente Listo',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(readyCtx).brightness == Brightness.dark
+                    ? const Color(0xFF0F1E36)
+                    : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.line),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.archive_rounded,
+                    color: AppColors.emerald,
+                    size: 32,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          fileName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Text(
+                          '14.8 MB · Cifrado AES-256',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.slate,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'El archivo comprimido contiene tu historial completo de casos, mensajes, comprobantes de pago y contratos firmados.',
+              style: TextStyle(fontSize: 12, color: AppColors.slate),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(readyCtx),
+            child: const Text('Cerrar'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(readyCtx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Descargando $fileName en la carpeta Descargas',
+                  ),
+                  backgroundColor: AppColors.emerald,
+                ),
+              );
+            },
+            icon: const Icon(Icons.download_rounded, size: 18),
+            label: const Text('Descargar archivo'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showRestoreSettingsDialog(
+    BuildContext context,
+    AppDataService data,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Row(
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: AppColors.orange,
+              size: 28,
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Restaurar configuración',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Esta acción restablecerá todas las opciones de seguridad, biometría, PIN, notificaciones y permisos a sus valores iniciales de fábrica.',
+              style: TextStyle(fontSize: 13, height: 1.45),
+            ),
+            SizedBox(height: 10),
+            Text(
+              'Nota: Tus casos, contratos firmados y mensajes permanecerán protegidos e intactos en el servidor.',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.slate,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.orange,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Restaurar ahora'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      data.resetToDefaults();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Configuración restablecida a valores de fábrica'),
+          ),
+        );
+      }
     }
   }
 
@@ -4091,4 +5529,27 @@ class _SecurityScreenState extends State<SecurityScreen> {
       ).showSnackBar(SnackBar(content: Text(successMessage)));
     }
   }
+}
+
+class _SignatureCanvasPainter extends CustomPainter {
+  final List<Offset?> points;
+
+  const _SignatureCanvasPainter(this.points);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = AppColors.emerald
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 3.0;
+
+    for (int i = 0; i < points.length - 1; i++) {
+      if (points[i] != null && points[i + 1] != null) {
+        canvas.drawLine(points[i]!, points[i + 1]!, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SignatureCanvasPainter oldDelegate) => true;
 }

@@ -5,6 +5,7 @@ import '../core/routes/app_routes.dart';
 import '../core/theme/app_colors.dart';
 import '../models/chat_message.dart';
 import '../services/chat_service.dart';
+import '../widgets/document_viewer_modal.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -298,50 +299,71 @@ class ChatBubble extends StatelessWidget {
                 ),
               ),
             if (message.attachment != null)
-              Container(
-                margin: const EdgeInsets.only(top: 8),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.picture_as_pdf_rounded,
-                      color: Color(0xFFDC2626),
+                  onTap: () => DocumentViewerModal.show(
+                    context,
+                    title: message.attachment!.name,
+                    subtitle: message.attachment!.size,
+                    docType: message.attachment!.extension,
+                    allowSign: message.attachment!.name.toLowerCase().contains('contrato'),
+                  ),
+                  child: Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.line),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            message.attachment!.name,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textPrimary,
-                            ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.picture_as_pdf_rounded,
+                          color: Color(0xFFDC2626),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                message.attachment!.name,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              Text(
+                                message.attachment!.size,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.slate,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            message.attachment!.size,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: AppColors.slate,
-                            ),
+                        ),
+                        IconButton(
+                          tooltip: 'Visualizar y descargar',
+                          onPressed: () => DocumentViewerModal.show(
+                            context,
+                            title: message.attachment!.name,
+                            subtitle: message.attachment!.size,
+                            docType: message.attachment!.extension,
+                            allowSign: message.attachment!.name.toLowerCase().contains('contrato'),
                           ),
-                        ],
-                      ),
+                          icon: const Icon(
+                            Icons.download_rounded,
+                            color: AppColors.emerald,
+                          ),
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      onPressed: () {},
-                      icon: const Icon(
-                        Icons.download_rounded,
-                        color: AppColors.emerald,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             const SizedBox(height: 4),

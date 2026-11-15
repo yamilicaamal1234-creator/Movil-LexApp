@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../core/routes/app_routes.dart';
 import '../core/theme/app_colors.dart';
 import '../services/app_data_service.dart';
 import 'home_screen.dart';
@@ -10,6 +11,22 @@ import 'profile_screen.dart';
 class MainScreen extends StatefulWidget {
   final int initialIndex;
   const MainScreen({super.key, this.initialIndex = 0});
+
+  static void switchTab(BuildContext context, int tabIndex) {
+    final state = context.findAncestorStateOfType<_MainScreenState>();
+    if (state != null) {
+      state.setIndex(tabIndex);
+    } else {
+      final routeName = switch (tabIndex) {
+        1 => AppRoutes.m12Cases,
+        2 => AppRoutes.m16Messages,
+        3 => AppRoutes.m19Profile,
+        _ => AppRoutes.shell,
+      };
+      Navigator.pushNamedAndRemoveUntil(context, routeName, (r) => false);
+    }
+  }
+
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -20,6 +37,12 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     index = widget.initialIndex;
+  }
+
+  void setIndex(int newIndex) {
+    if (mounted && newIndex >= 0 && newIndex < screens.length) {
+      setState(() => index = newIndex);
+    }
   }
 
   final screens = const [

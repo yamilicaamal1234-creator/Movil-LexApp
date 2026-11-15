@@ -70,9 +70,12 @@ class AppRoutes {
         break;
       case otpLogin:
       case m02aOtpLogin:
-        page = const OtpScreen(
-          title: 'Verifica tu identidad',
-          destination: shell,
+        final otpArgs = settings.arguments as Map<String, dynamic>?;
+        page = OtpScreen(
+          title: otpArgs?['title'] as String? ?? 'Verifica tu identidad',
+          destination: otpArgs?['destination'] as String? ?? shell,
+          email: otpArgs?['email'] as String?,
+          expectedCode: otpArgs?['code'] as String?,
         );
         break;
       case forgot:
@@ -81,9 +84,12 @@ class AppRoutes {
         break;
       case recoveryOtp:
       case m02cRecoveryOtp:
-        page = const OtpScreen(
+        final recoveryArgs = settings.arguments as Map<String, dynamic>?;
+        page = OtpScreen(
           title: 'Verifica tu correo electrónico',
           destination: newPassword,
+          email: recoveryArgs?['email'] as String?,
+          expectedCode: recoveryArgs?['code'] as String?,
         );
         break;
       case newPassword:
@@ -101,10 +107,13 @@ class AppRoutes {
         break;
       case registerOtp:
       case m05aRegisterOtp:
-        page = const OtpScreen(
+        final regArgs = settings.arguments as Map<String, dynamic>?;
+        page = OtpScreen(
           title: 'Verifica tu correo electrónico',
           destination: shell,
           registrationStep: true,
+          email: regArgs?['email'] as String?,
+          expectedCode: regArgs?['code'] as String?,
         );
         break;
       case notifications:

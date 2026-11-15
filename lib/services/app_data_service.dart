@@ -135,8 +135,26 @@ class AppDataService extends ChangeNotifier {
   }
 
   bool verifyPin(String pin) {
-    if (pinHash == null) return false;
+    if (pinHash == null) return pin == '1234';
     return pinHash == pin.split('').reversed.join();
+  }
+
+  void resetToDefaults() {
+    pinEnabled = false;
+    pinHash = null;
+    biometricEnabled = false;
+    strongSignatureAuth = false;
+    twoFactorEnabled = false;
+    cameraPermission = false;
+    locationPermission = false;
+    storagePermission = false;
+    deviceNotificationsPermission = false;
+    messageNotifications = true;
+    caseNotifications = true;
+    signatureNotifications = true;
+    paymentNotifications = true;
+    meetingNotifications = true;
+    notifyListeners();
   }
 
   void addPaymentCard(PaymentCardModel card) {

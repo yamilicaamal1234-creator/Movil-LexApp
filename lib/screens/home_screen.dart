@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../core/routes/app_routes.dart';
 import '../core/theme/app_colors.dart';
 import '../services/app_data_service.dart';
+import '../widgets/document_viewer_modal.dart';
+import 'main_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -39,7 +41,7 @@ class HomeScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Hola, Ricardo',
+                          'Hola, ${context.watch<AppDataService>().user.name.trim().split(' ').first}',
                           style: TextStyle(
                             fontSize: 21,
                             fontWeight: FontWeight.w800,
@@ -315,6 +317,13 @@ class HomeScreen extends StatelessWidget {
                     AppColors.blue,
                     AppRoutes.documents,
                     null,
+                    onTapCustom: () => DocumentViewerModal.show(
+                      context,
+                      title: 'adenda_modificacion_clausula_penal.pdf',
+                      subtitle: 'Documento legal de modificación',
+                      docType: 'PDF',
+                      allowSign: true,
+                    ),
                   ),
                   _activity(
                     context,
@@ -374,8 +383,7 @@ class HomeScreen extends StatelessWidget {
     return InkWell(
       onTap: () {
         if (tab != null) {
-          Navigator.of(context).popUntil((route) => route.isFirst);
-          Navigator.pushReplacementNamed(context, AppRoutes.shell);
+          MainScreen.switchTab(context, tab);
         } else {
           Navigator.pushNamed(context, route);
         }
@@ -431,11 +439,12 @@ class HomeScreen extends StatelessWidget {
     String subtitle,
     Color color,
     String route,
-    String? action,
-  ) => Card(
+    String? action, {
+    VoidCallback? onTapCustom,
+  }) => Card(
     margin: const EdgeInsets.only(bottom: 10),
     child: ListTile(
-      onTap: () => Navigator.pushNamed(context, route),
+      onTap: onTapCustom ?? () => Navigator.pushNamed(context, route),
       leading: CircleAvatar(
         backgroundColor: color.withValues(alpha: 0.12),
         child: Icon(Icons.description_outlined, color: color, size: 20),
@@ -456,7 +465,7 @@ class HomeScreen extends StatelessWidget {
       trailing: action == null
           ? const Icon(Icons.chevron_right, size: 18)
           : TextButton(
-              onPressed: () => Navigator.pushNamed(context, route),
+              onPressed: onTapCustom ?? () => Navigator.pushNamed(context, route),
               child: Text(action),
             ),
     ),
