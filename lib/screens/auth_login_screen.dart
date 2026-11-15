@@ -26,7 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   width: 72,
                   height: 72,
                   decoration: BoxDecoration(
-                    color: AppColors.background,
+                    color: AppColors.bg,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Image.asset(
@@ -38,13 +38,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 18),
-              const Center(
+              Center(
                 child: Text(
                   'Bienvenido a LexApp',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.navy,
+                    color: AppColors.textPrimary,
                   ),
                 ),
               ),
@@ -56,11 +56,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 38),
-              const Text(
+              Text(
                 'Correo electrónico',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
-                  color: AppColors.navy,
+                  color: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(height: 8),
@@ -72,11 +72,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 18),
-              const Text(
+              Text(
                 'Contraseña',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
-                  color: AppColors.navy,
+                  color: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(height: 8),
@@ -125,21 +125,21 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 14),
               OutlinedButton.icon(
                 onPressed: () {},
-                icon: const Icon(
+                icon: Icon(
                   Icons.g_mobiledata_rounded,
                   size: 28,
-                  color: AppColors.navy,
+                  color: AppColors.textPrimary,
                 ),
-                label: const Text(
+                label: Text(
                   'Continuar con Google',
                   style: TextStyle(
-                    color: AppColors.navy,
+                    color: AppColors.textPrimary,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(52),
-                  side: const BorderSide(color: AppColors.border),
+                  side: BorderSide(color: AppColors.line),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),

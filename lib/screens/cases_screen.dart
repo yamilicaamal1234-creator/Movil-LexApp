@@ -68,7 +68,7 @@ class _CasesScreenState extends State<CasesScreen> {
             onPressed: () => Navigator.pushNamed(context, AppRoutes.search),
             style: ElevatedButton.styleFrom(
               minimumSize: const Size(118, 42),
-              backgroundColor: AppColors.blue,
+              backgroundColor: AppColors.emerald,
               foregroundColor: Colors.white,
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),

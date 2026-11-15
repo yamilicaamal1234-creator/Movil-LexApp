@@ -9,6 +9,9 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return SafeArea(
       child: CustomScrollView(
         slivers: [
@@ -23,12 +26,15 @@ class HomeScreen extends StatelessWidget {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(color: AppColors.emerald, width: 2),
-                      color: AppColors.border,
+                      color: theme.colorScheme.surfaceContainerHighest,
                     ),
-                    child: const Icon(Icons.person, color: AppColors.navy),
+                    child: Icon(
+                      Icons.person,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -37,7 +43,7 @@ class HomeScreen extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 21,
                             fontWeight: FontWeight.w800,
-                            color: AppColors.navy,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         Text(
@@ -57,9 +63,9 @@ class HomeScreen extends StatelessWidget {
                     icon: Stack(
                       clipBehavior: Clip.none,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.notifications_none_rounded,
-                          color: AppColors.navy,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                         Consumer<AppDataService>(
                           builder: (context, data, _) {
@@ -93,8 +99,11 @@ class HomeScreen extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: AppColors.navy,
+                  color: isDark ? AppColors.navySoft : AppColors.navy,
                   borderRadius: BorderRadius.circular(16),
+                  border: isDark
+                      ? Border.all(color: AppColors.darkBorder)
+                      : null,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -153,7 +162,7 @@ class HomeScreen extends StatelessWidget {
                                 child: Icon(Icons.person, size: 34),
                               ),
                               const SizedBox(width: 12),
-                              const Expanded(
+                              Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -167,7 +176,9 @@ class HomeScreen extends StatelessWidget {
                                     Text(
                                       'Dra. Elena Ramos • Hoy, 16:30 hs',
                                       style: TextStyle(
-                                        color: AppColors.slate,
+                                        color: isDark
+                                            ? AppColors.darkSlate
+                                            : AppColors.slate,
                                         fontSize: 12,
                                       ),
                                     ),
@@ -356,49 +367,63 @@ class HomeScreen extends StatelessWidget {
     String subtitle,
     String route,
     int? tab,
-  ) => InkWell(
-    onTap: () {
-      if (tab != null) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
-        Navigator.pushReplacementNamed(context, AppRoutes.shell);
-      } else {
-        Navigator.pushNamed(context, route);
-      }
-    },
-    child: Container(
-      height: 112,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x08000000),
-            blurRadius: 12,
-            offset: Offset(0, 4),
-          ),
-        ],
+  ) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return InkWell(
+      onTap: () {
+        if (tab != null) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+          Navigator.pushReplacementNamed(context, AppRoutes.shell);
+        } else {
+          Navigator.pushNamed(context, route);
+        }
+      },
+      child: Container(
+        height: 112,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: theme.colorScheme.outline),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x08000000),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: AppColors.emerald),
+            const SizedBox(height: 7),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color:
+                    theme.textTheme.bodyLarge?.color ??
+                    (isDark ? AppColors.white : AppColors.navy),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 10,
+                color: isDark ? AppColors.darkSlate : AppColors.slate,
+              ),
+            ),
+          ],
+        ),
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: AppColors.emerald),
-          const SizedBox(height: 7),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
-          ),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 10, color: AppColors.slate),
-          ),
-        ],
-      ),
-    ),
-  );
+    );
+  }
 
   Widget _activity(
     BuildContext context,
@@ -421,7 +446,12 @@ class HomeScreen extends StatelessWidget {
       ),
       subtitle: Text(
         subtitle,
-        style: const TextStyle(fontSize: 11, color: AppColors.slate),
+        style: TextStyle(
+          fontSize: 11,
+          color: Theme.of(context).brightness == Brightness.dark
+              ? AppColors.darkSlate
+              : AppColors.slate,
+        ),
       ),
       trailing: action == null
           ? const Icon(Icons.chevron_right, size: 18)

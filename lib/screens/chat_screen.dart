@@ -17,9 +17,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> attachFile(ChatService service) async {
     final result = await FilePicker.pickFiles(
+      type: FileType.any,
       allowMultiple: false,
       withData: false,
       withReadStream: false,
+      dialogTitle: 'Adjuntar archivo real',
     );
     if (!mounted || result == null || result.files.isEmpty) return;
 
@@ -76,7 +78,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return Consumer<ChatService>(
       builder: (context, service, _) {
         return Scaffold(
-          backgroundColor: const Color(0xFFF3F6F8),
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           appBar: AppBar(
             toolbarHeight: 76,
             leading: IconButton(
@@ -84,15 +86,15 @@ class _ChatScreenState extends State<ChatScreen> {
               onPressed: () => Navigator.pop(context),
             ),
             titleSpacing: 0,
-            title: const Row(
+            title: Row(
               children: [
                 CircleAvatar(
                   radius: 23,
-                  backgroundColor: AppColors.border,
+                  backgroundColor: AppColors.line,
                   child: Text(
                     'AG',
                     style: TextStyle(
-                      color: AppColors.navy,
+                      color: AppColors.textPrimary,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -155,7 +157,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 padding: const EdgeInsets.symmetric(vertical: 9),
                 decoration: BoxDecoration(
-                  color: AppColors.border,
+                  color: AppColors.line,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Row(
@@ -197,7 +199,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               Container(
-                color: AppColors.white,
+                color: Theme.of(context).colorScheme.surface,
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                 child: SafeArea(
                   top: false,
@@ -206,9 +208,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       IconButton(
                         tooltip: 'Adjuntar archivo',
                         onPressed: () => attachFile(service),
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.add_circle_outline_rounded,
-                          color: AppColors.navy,
+                          color: AppColors.textPrimary,
                         ),
                       ),
                       const SizedBox(width: 4),
@@ -219,7 +221,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           decoration: InputDecoration(
                             hintText: 'Escribe un mensaje...',
                             filled: true,
-                            fillColor: AppColors.background,
+                            fillColor: AppColors.bg,
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: 16,
                               vertical: 12,
@@ -275,14 +277,14 @@ class ChatBubble extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: client ? AppColors.emerald : AppColors.white,
+          color: client ? AppColors.emerald : AppColors.surface,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
             bottomLeft: Radius.circular(client ? 16 : 4),
             bottomRight: Radius.circular(client ? 4 : 16),
           ),
-          border: client ? null : Border.all(color: AppColors.border),
+          border: client ? null : Border.all(color: AppColors.line),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -292,7 +294,7 @@ class ChatBubble extends StatelessWidget {
                 message.text,
                 style: TextStyle(
                   height: 1.45,
-                  color: client ? AppColors.white : AppColors.navy,
+                  color: client ? AppColors.white : AppColors.textPrimary,
                 ),
               ),
             if (message.attachment != null)
@@ -300,7 +302,7 @@ class ChatBubble extends StatelessWidget {
                 margin: const EdgeInsets.only(top: 8),
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: AppColors.white,
+                  color: AppColors.surface,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -316,10 +318,10 @@ class ChatBubble extends StatelessWidget {
                         children: [
                           Text(
                             message.attachment!.name,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
-                              color: AppColors.navy,
+                              color: AppColors.textPrimary,
                             ),
                           ),
                           Text(

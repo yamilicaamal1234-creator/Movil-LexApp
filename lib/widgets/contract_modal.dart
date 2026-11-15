@@ -8,8 +8,8 @@ class ContractModalWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.of(context).size.height * .82,
-      decoration: const BoxDecoration(
-        color: AppColors.white,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
@@ -19,7 +19,7 @@ class ContractModalWidget extends StatelessWidget {
             width: 42,
             height: 4,
             decoration: BoxDecoration(
-              color: AppColors.border,
+              color: AppColors.line,
               borderRadius: BorderRadius.circular(4),
             ),
           ),
@@ -29,22 +29,22 @@ class ContractModalWidget extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Propuesta de Servicios Legales',
                     style: TextStyle(
                       fontSize: 21,
                       fontWeight: FontWeight.w800,
-                      color: AppColors.navy,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 18),
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: AppColors.background,
+                      color: AppColors.bg,
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    child: const Column(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
@@ -58,7 +58,7 @@ class ContractModalWidget extends StatelessWidget {
                           'Lic. Alejandro Garcia',
                           style: TextStyle(
                             fontWeight: FontWeight.w800,
-                            color: AppColors.navy,
+                            color: AppColors.textPrimary,
                           ),
                         ),
                         SizedBox(height: 10),
@@ -73,18 +73,18 @@ class ContractModalWidget extends StatelessWidget {
                           'Divorcio Mutuo Acuerdo',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
-                            color: AppColors.navy,
+                            color: AppColors.textPrimary,
                           ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 18),
-                  const Text(
+                  Text(
                     'Condiciones del servicio',
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
-                      color: AppColors.navy,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -96,7 +96,7 @@ class ContractModalWidget extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: AppColors.background,
+                      color: AppColors.bg,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: const Column(
@@ -187,7 +187,7 @@ class _PriceRow extends StatelessWidget {
             label,
             style: TextStyle(
               fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
-              color: AppColors.navy,
+              color: AppColors.textPrimary,
             ),
           ),
         ),
@@ -195,7 +195,7 @@ class _PriceRow extends StatelessWidget {
           value,
           style: TextStyle(
             fontWeight: FontWeight.w800,
-            color: bold ? AppColors.emerald : AppColors.navy,
+            color: bold ? AppColors.emerald : AppColors.textPrimary,
           ),
         ),
       ],

@@ -14,9 +14,11 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
 
   Future<void> _pickDocument() async {
     final result = await FilePicker.pickFiles(
+      type: FileType.any,
       allowMultiple: true,
       withData: false,
       withReadStream: false,
+      dialogTitle: 'Seleccionar documentos reales',
     );
     if (!mounted || result == null || result.files.isEmpty) return;
 
@@ -113,9 +115,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             itemBuilder: (_, i) => Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: AppColors.white,
+                color: AppColors.surface,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.border),
+                border: Border.all(color: AppColors.line),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -129,9 +131,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                   const SizedBox(height: 8),
                   Text(
                     folders[i].$1,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w800,
-                      color: AppColors.navy,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   Text(
@@ -146,12 +148,12 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             ),
           ),
           const SizedBox(height: 22),
-          const Text(
+          Text(
             'Archivos Recientes',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
-              color: AppColors.navy,
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 10),
@@ -160,7 +162,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
               margin: const EdgeInsets.only(bottom: 10),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppColors.white,
+                color: AppColors.surface,
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Row(
@@ -183,9 +185,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                           file.$4,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w700,
-                            color: AppColors.navy,
+                            color: AppColors.textPrimary,
                           ),
                         ),
                         Text(

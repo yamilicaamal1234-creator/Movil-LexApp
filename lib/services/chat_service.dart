@@ -16,17 +16,7 @@ class ChatService extends ChangeNotifier {
         sender: MessageSender.client,
         time: '9:32 AM',
       ),
-      const ChatMessage(
-        text:
-            'Perfecto. Te comparto la propuesta actualizada para tu revisión.',
-        sender: MessageSender.lawyer,
-        time: '9:35 AM',
-        attachment: ChatAttachment(
-          name: 'Propuesta_servicios.pdf',
-          size: '2.4 MB',
-          extension: 'PDF',
-        ),
-      ),
+
       const ChatMessage(
         text: 'Muchas gracias, la reviso hoy mismo.',
         sender: MessageSender.client,

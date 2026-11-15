@@ -31,7 +31,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 width: 68,
                 height: 68,
                 decoration: BoxDecoration(
-                  color: AppColors.background,
+                  color: AppColors.bg,
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Image.asset(
@@ -42,12 +42,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 'Registro',
                 style: TextStyle(
                   fontSize: 26,
                   fontWeight: FontWeight.w800,
-                  color: AppColors.navy,
+                  color: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(height: 28),

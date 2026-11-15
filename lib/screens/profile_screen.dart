@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../core/routes/app_routes.dart';
 import '../core/theme/app_colors.dart';
 import '../services/app_data_service.dart';
+import '../core/theme/theme_mode_controller.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -57,7 +58,9 @@ class ProfileScreen extends StatelessWidget {
                                 vertical: 5,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFE8F8F2),
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: const Text(
@@ -105,6 +108,33 @@ class ProfileScreen extends StatelessWidget {
                 AppRoutes.security,
               ),
               const SizedBox(height: 12),
+              const _SectionTitle('Apariencia'),
+              Consumer<ThemeModeController>(
+                builder: (context, themeController, _) {
+                  final label = switch (themeController.themeMode) {
+                    ThemeMode.light => 'Claro',
+                    ThemeMode.dark => 'Oscuro',
+                    ThemeMode.system => 'Predeterminado al sistema',
+                  };
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.palette_outlined,
+                        color: AppColors.emerald,
+                      ),
+                      title: const Text(
+                        'Modo de la aplicación',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(label),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _showThemePicker(context, themeController),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
               const _SectionTitle('Facturación'),
               _option(
                 context,
@@ -149,6 +179,89 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
+  void _showThemePicker(
+    BuildContext context,
+    ThemeModeController themeController,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Modo de la aplicación',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              _themeOption(
+                sheetContext,
+                themeController,
+                ThemeMode.system,
+                Icons.settings_suggest_outlined,
+                'Predeterminado al sistema',
+                'Usa la apariencia configurada en el dispositivo',
+              ),
+              _themeOption(
+                sheetContext,
+                themeController,
+                ThemeMode.light,
+                Icons.light_mode_outlined,
+                'Modo claro',
+                'Fondos claros y texto oscuro',
+              ),
+              _themeOption(
+                sheetContext,
+                themeController,
+                ThemeMode.dark,
+                Icons.dark_mode_outlined,
+                'Modo oscuro',
+                'Fondos oscuros y texto claro',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _themeOption(
+    BuildContext sheetContext,
+    ThemeModeController themeController,
+    ThemeMode mode,
+    IconData icon,
+    String title,
+    String subtitle,
+  ) {
+    final selected = themeController.themeMode == mode;
+    return Card(
+      child: ListTile(
+        leading: Icon(
+          icon,
+          color: selected ? AppColors.emerald : AppColors.slate,
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+          ),
+        ),
+        subtitle: Text(subtitle),
+        trailing: selected
+            ? const Icon(Icons.check_circle, color: AppColors.emerald)
+            : null,
+        onTap: () async {
+          await themeController.setThemeMode(mode);
+          if (sheetContext.mounted) Navigator.pop(sheetContext);
+        },
+      ),
+    );
+  }
+
   Widget _option(
     BuildContext context,
     IconData icon,
@@ -181,8 +294,8 @@ class _SectionTitle extends StatelessWidget {
     padding: const EdgeInsets.only(bottom: 8),
     child: Text(
       label,
-      style: const TextStyle(
-        color: AppColors.navy,
+      style: TextStyle(
+        color: AppColors.textPrimary,
         fontWeight: FontWeight.w800,
       ),
     ),

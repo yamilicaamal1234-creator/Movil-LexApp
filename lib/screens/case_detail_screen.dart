@@ -36,10 +36,10 @@ class CaseDetailScreen extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.navy,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 5),
@@ -72,12 +72,12 @@ class CaseDetailScreen extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 12),
-                const Text(
+                Text(
                   'Documentos adjuntos',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.navy,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -93,7 +93,7 @@ class CaseDetailScreen extends StatelessWidget {
           ),
           Container(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
-            decoration: const BoxDecoration(color: AppColors.white),
+            decoration: BoxDecoration(color: AppColors.surface),
             child: SafeArea(
               top: false,
               child: ElevatedButton.icon(
@@ -118,9 +118,9 @@ class CaseDetailScreen extends StatelessWidget {
   }) => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: AppColors.white,
+      color: AppColors.surface,
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: AppColors.border),
+      border: Border.all(color: AppColors.line),
     ),
     child: Row(
       children: [
@@ -140,9 +140,9 @@ class CaseDetailScreen extends StatelessWidget {
             children: [
               Text(
                 name,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w700,
-                  color: AppColors.navy,
+                  color: AppColors.textPrimary,
                 ),
               ),
               Text(
@@ -189,7 +189,7 @@ class _TimelineItem extends StatelessWidget {
                   bottom: -4,
                   child: Container(
                     width: 2,
-                    color: done ? AppColors.emerald : AppColors.border,
+                    color: done ? AppColors.emerald : AppColors.line,
                   ),
                 ),
               Container(
@@ -198,12 +198,12 @@ class _TimelineItem extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: done || progress
                       ? AppColors.emerald.withValues(alpha: .12)
-                      : const Color(0xFFF1F5F9),
+                      : AppColors.line,
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: done || progress
                         ? AppColors.emerald
-                        : AppColors.border,
+                        : AppColors.line,
                     width: done ? 0 : 2,
                   ),
                 ),
@@ -226,9 +226,9 @@ class _TimelineItem extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w800,
-                    color: AppColors.navy,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),

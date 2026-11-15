@@ -26,11 +26,12 @@ class _Page extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: AppColors.white,
-        foregroundColor: AppColors.navy,
+        backgroundColor: theme.appBarTheme.backgroundColor,
+        foregroundColor: theme.appBarTheme.foregroundColor,
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
         actions: actions,
       ),
@@ -46,7 +47,35 @@ class LoginScreenLex extends StatefulWidget {
 }
 
 class _LoginScreenLexState extends State<LoginScreenLex> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool obscure = true;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || _passwordController.text.isEmpty) {
+      setState(() => _error = 'Ingresa correo y contraseña.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted) return;
+    setState(() => _loading = false);
+    Navigator.pushNamedAndRemoveUntil(context, AppRoutes.shell, (_) => false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -58,10 +87,13 @@ class _LoginScreenLexState extends State<LoginScreenLex> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 20),
-              const Icon(
-                Icons.lock_outline,
-                color: AppColors.emerald,
-                size: 34,
+              Center(
+                child: Image.asset(
+                  'assets/logo.png',
+                  width: 104,
+                  height: 104,
+                  fit: BoxFit.contain,
+                ),
               ),
               const SizedBox(height: 18),
               const Text(
@@ -74,9 +106,18 @@ class _LoginScreenLexState extends State<LoginScreenLex> {
                 ),
               ),
               const SizedBox(height: 36),
-              _darkField('Correo electrónico', Icons.mail_outline),
+              TextField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                style: const TextStyle(color: AppColors.white),
+                decoration: _inputDecoration(
+                  'Correo electrónico',
+                  Icons.mail_outline,
+                ),
+              ),
               const SizedBox(height: 16),
               TextField(
+                controller: _passwordController,
                 obscureText: obscure,
                 style: const TextStyle(color: AppColors.white),
                 decoration: _inputDecoration('Contraseña', Icons.lock_outline)
@@ -106,11 +147,18 @@ class _LoginScreenLexState extends State<LoginScreenLex> {
                   ),
                 ),
               ),
+              if (_error != null) ...[
+                Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.red),
+                ),
+                const SizedBox(height: 10),
+              ],
               const SizedBox(height: 10),
               ElevatedButton(
-                onPressed: () =>
-                    Navigator.pushNamed(context, AppRoutes.otpLogin),
-                child: const Text('Iniciar sesión'),
+                onPressed: _loading ? null : _login,
+                child: Text(_loading ? 'Iniciando...' : 'Iniciar sesión'),
               ),
               const SizedBox(height: 14),
               const Row(
@@ -153,12 +201,6 @@ class _LoginScreenLexState extends State<LoginScreenLex> {
       ),
     );
   }
-
-  Widget _darkField(String hint, IconData icon) => TextField(
-    keyboardType: TextInputType.emailAddress,
-    style: const TextStyle(color: AppColors.white),
-    decoration: _inputDecoration(hint, icon),
-  );
 
   InputDecoration _inputDecoration(String hint, IconData icon) =>
       InputDecoration(
@@ -339,8 +381,8 @@ class ForgotPasswordScreen extends StatelessWidget {
                   Container(
                     width: 92,
                     height: 92,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFE0F2FE),
+                    decoration: BoxDecoration(
+                      color: AppColors.tint,
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -366,13 +408,13 @@ class ForgotPasswordScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            const Text(
+            Text(
               'Recupera tu contraseña',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.w800,
-                color: AppColors.navy,
+                color: AppColors.textPrimary,
               ),
             ),
             const SizedBox(height: 10),
@@ -621,6 +663,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _accepted = false;
+  bool _loading = false;
   String? _error;
 
   @override
@@ -639,7 +682,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _confirmController.text.isNotEmpty &&
       _confirmController.text == _passwordController.text;
 
-  void _submit() {
+  Future<void> _submit() async {
     final email = _emailController.text.trim();
     final emailValid = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
     String? error;
@@ -655,9 +698,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       error = 'Acepta los términos y la política de privacidad.';
     }
     setState(() => _error = error);
-    if (error == null) {
-      Navigator.pushNamed(context, AppRoutes.registerOtp);
-    }
+    if (error != null) return;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted) return;
+    setState(() => _loading = false);
+    Navigator.pushNamed(context, AppRoutes.registerOtp);
   }
 
   void _showLegal(String title) {
@@ -694,7 +744,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.bg,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
@@ -705,15 +755,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 children: [
                   TextButton.icon(
                     onPressed: () => Navigator.pop(context),
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.arrow_back_ios_new_rounded,
                       size: 18,
-                      color: AppColors.navy,
+                      color: AppColors.textPrimary,
                     ),
-                    label: const Text(
+                    label: Text(
                       'Volver',
                       style: TextStyle(
-                        color: AppColors.navy,
+                        color: AppColors.textPrimary,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -725,7 +775,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       vertical: 7,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.border.withValues(alpha: 0.65),
+                      color: AppColors.line.withValues(alpha: 0.65),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: const Text(
@@ -766,7 +816,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     child: Container(
                       height: 4,
                       decoration: BoxDecoration(
-                        color: AppColors.border,
+                        color: AppColors.line,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -780,7 +830,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE6F8F1),
+                  color: AppColors.tint,
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: const Row(
@@ -804,12 +854,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
               const SizedBox(height: 14),
-              const Text(
+              Text(
                 'Crea tu cuenta',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w800,
-                  color: AppColors.navy,
+                  color: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(height: 8),
@@ -946,7 +996,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     child: Checkbox(
                       value: _accepted,
                       activeColor: AppColors.emerald,
-                      side: const BorderSide(color: AppColors.border),
+                      side: BorderSide(color: AppColors.line),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(4),
                       ),
@@ -970,10 +1020,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             recognizer: TapGestureRecognizer()
                               ..onTap = () =>
                                   _showLegal('Términos de Servicio'),
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontWeight: FontWeight.w800,
                               decoration: TextDecoration.underline,
-                              color: AppColors.navy,
+                              color: AppColors.textPrimary,
                             ),
                           ),
                           const TextSpan(text: ' y la '),
@@ -982,10 +1032,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             recognizer: TapGestureRecognizer()
                               ..onTap = () =>
                                   _showLegal('Política de Privacidad'),
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontWeight: FontWeight.w800,
                               decoration: TextDecoration.underline,
-                              color: AppColors.navy,
+                              color: AppColors.textPrimary,
                             ),
                           ),
                           const TextSpan(text: ' de LexApp.'),
@@ -1004,7 +1054,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ],
               const SizedBox(height: 18),
               ElevatedButton(
-                onPressed: _submit,
+                onPressed: _loading ? null : _submit,
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size.fromHeight(52),
                   backgroundColor: AppColors.emerald,
@@ -1014,15 +1064,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
-                child: const Text(
-                  'Crear cuenta ->',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                child: Text(
+                  _loading ? 'Creando cuenta...' : 'Crear cuenta ->',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               const SizedBox(height: 20),
-              const Row(
+              Row(
                 children: [
-                  Expanded(child: Divider(color: AppColors.border)),
+                  Expanded(child: Divider(color: AppColors.line)),
                   Padding(
                     padding: EdgeInsets.symmetric(horizontal: 12),
                     child: Text(
@@ -1030,7 +1083,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       style: TextStyle(fontSize: 11, color: AppColors.slate),
                     ),
                   ),
-                  Expanded(child: Divider(color: AppColors.border)),
+                  Expanded(child: Divider(color: AppColors.line)),
                 ],
               ),
               const SizedBox(height: 14),
@@ -1038,13 +1091,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 onPressed: () {},
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(52),
-                  side: const BorderSide(color: AppColors.border),
-                  backgroundColor: AppColors.white,
+                  side: BorderSide(color: AppColors.line),
+                  backgroundColor: AppColors.surface,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
@@ -1061,7 +1114,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.navy,
+                        color: AppColors.textPrimary,
                       ),
                     ),
                   ],
@@ -1095,7 +1148,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   vertical: 10,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEFF8F4),
+                  color: AppColors.tint,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Row(
@@ -1128,9 +1181,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     padding: const EdgeInsets.only(bottom: 8),
     child: RichText(
       text: TextSpan(
-        style: const TextStyle(
+        style: TextStyle(
           fontWeight: FontWeight.w700,
-          color: AppColors.navy,
+          color: AppColors.textPrimary,
         ),
         children: [
           TextSpan(text: text),
@@ -1162,11 +1215,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       hintStyle: const TextStyle(color: AppColors.slate),
       prefixIcon: Icon(icon, color: AppColors.slate, size: 20),
       filled: true,
-      fillColor: AppColors.white,
+      fillColor: AppColors.surface,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppColors.border),
+        borderSide: BorderSide(color: AppColors.line),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -1181,9 +1234,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: valid ? const Color(0xFFE6F8F1) : AppColors.white,
+        color: valid ? AppColors.tint : AppColors.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: valid ? AppColors.emerald : AppColors.border),
+        border: Border.all(color: valid ? AppColors.emerald : AppColors.line),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1323,10 +1376,10 @@ class SearchLawyerScreen extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 28,
-                backgroundColor: AppColors.border,
+                backgroundColor: AppColors.line,
                 child: Icon(
                   i == 0 ? Icons.person_outline : Icons.person_2_outlined,
-                  color: AppColors.navy,
+                  color: AppColors.textPrimary,
                   size: 34,
                 ),
               ),
@@ -1849,9 +1902,11 @@ class _CaseDocumentsScreenState extends State<CaseDocumentsScreen> {
 
   Future<void> _pickDocument() async {
     final result = await FilePicker.pickFiles(
+      type: FileType.any,
       allowMultiple: true,
       withData: false,
       withReadStream: false,
+      dialogTitle: 'Seleccionar documentos reales',
     );
     if (!mounted || result == null || result.files.isEmpty) return;
     setState(() => _uploadedFiles.insertAll(0, result.files));
@@ -1992,9 +2047,9 @@ class _SignatureScreenState extends State<SignatureScreen> {
         Container(
           height: 220,
           decoration: BoxDecoration(
-            color: AppColors.white,
+            color: AppColors.surface,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border),
+            border: Border.all(color: AppColors.line),
           ),
           child: GestureDetector(
             onPanUpdate: (details) {
@@ -2060,6 +2115,12 @@ class _SignaturePainter extends CustomPainter {
   bool shouldRepaint(covariant _SignaturePainter oldDelegate) => true;
 }
 
+String _formatPickedSize(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
+
 class ChatScreenLex extends StatefulWidget {
   const ChatScreenLex({super.key});
   @override
@@ -2072,9 +2133,9 @@ class _ChatScreenLexState extends State<ChatScreenLex> {
     {'text': 'Hola Ricardo, revisé tu consulta.', 'mine': false},
     {'text': 'Gracias, doctora. Tengo el contrato listo.', 'mine': true},
     {
-      'text': 'Perfecto. Puedes subirlo desde el expediente.',
+      'text': 'Perfecto. Cuando tengas el documento puedes adjuntarlo aquí.',
       'mine': false,
-      'file': true,
+      'file': false,
     },
   ];
   static final phoneOrEmail = RegExp(
@@ -2089,7 +2150,10 @@ class _ChatScreenLexState extends State<ChatScreenLex> {
     super.didChangeDependencies();
     if (!_readMarked) {
       _readMarked = true;
-      context.read<AppDataService>().markConversationRead(0);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        context.read<AppDataService>().markConversationRead(0);
+      });
     }
   }
 
@@ -2121,7 +2185,7 @@ class _ChatScreenLexState extends State<ChatScreenLex> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF1F5F9),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2165,7 +2229,9 @@ class _ChatScreenLexState extends State<ChatScreenLex> {
         children: [
           Container(
             width: double.infinity,
-            color: const Color(0xFFE8F7F1),
+            color: Theme.of(
+              context,
+            ).colorScheme.primary.withValues(alpha: 0.12),
             padding: const EdgeInsets.all(10),
             child: const Text(
               '🔒 Cifrado de extremo a extremo • Secreto profesional',
@@ -2183,6 +2249,9 @@ class _ChatScreenLexState extends State<ChatScreenLex> {
               itemBuilder: (_, i) {
                 final message = messages[i];
                 final mine = message['mine'] as bool;
+                final attachmentSize = message['size'] is int
+                    ? _formatPickedSize(message['size'] as int)
+                    : '';
                 return Align(
                   alignment: mine
                       ? Alignment.centerRight
@@ -2192,10 +2261,16 @@ class _ChatScreenLexState extends State<ChatScreenLex> {
                     margin: const EdgeInsets.only(bottom: 10),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: mine ? AppColors.emerald : AppColors.white,
+                      color: mine
+                          ? AppColors.emerald
+                          : Theme.of(context).colorScheme.surface,
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: mine ? AppColors.emerald : AppColors.border,
+                        color: mine
+                            ? AppColors.emerald
+                            : Theme.of(
+                                context,
+                              ).colorScheme.outline.withValues(alpha: 0.25),
                       ),
                     ),
                     child: Column(
@@ -2204,17 +2279,41 @@ class _ChatScreenLexState extends State<ChatScreenLex> {
                         Text(
                           message['text'] as String,
                           style: TextStyle(
-                            color: mine ? AppColors.white : AppColors.navy,
+                            color: mine
+                                ? AppColors.white
+                                : Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         if (message['file'] == true) ...[
                           const SizedBox(height: 8),
-                          OutlinedButton(
-                            onPressed: () => Navigator.pushNamed(
-                              context,
-                              AppRoutes.documents,
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            child: const Text('Revisar y firmar'),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.attach_file_rounded,
+                                  size: 18,
+                                  color: AppColors.emerald,
+                                ),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    attachmentSize,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: AppColors.slate,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ],
@@ -2233,7 +2332,13 @@ class _ChatScreenLexState extends State<ChatScreenLex> {
                   IconButton(
                     onPressed: () async {
                       final messenger = ScaffoldMessenger.of(context);
-                      final result = await FilePicker.pickFiles();
+                      final result = await FilePicker.pickFiles(
+                        type: FileType.any,
+                        allowMultiple: false,
+                        withData: false,
+                        withReadStream: false,
+                        dialogTitle: 'Adjuntar archivo real',
+                      );
                       if (!mounted) return;
                       if (result == null || result.files.isEmpty) return;
                       final file = result.files.single;
@@ -2243,6 +2348,8 @@ class _ChatScreenLexState extends State<ChatScreenLex> {
                           'text': file.name,
                           'mine': true,
                           'file': true,
+                          'size': file.size,
+                          'path': file.path,
                         });
                       });
                       if (!mounted) return;
@@ -2661,7 +2768,7 @@ class PaymentMethodsScreen extends StatelessWidget {
     return Consumer<AppDataService>(
       builder: (context, data, _) {
         return Scaffold(
-          backgroundColor: AppColors.background,
+          backgroundColor: AppColors.bg,
           appBar: AppBar(
             leading: TextButton.icon(
               onPressed: () => Navigator.pop(context),
@@ -2700,11 +2807,11 @@ class PaymentMethodsScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: AppColors.white,
+                  color: AppColors.surface,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(color: AppColors.line),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
                     Icon(Icons.shield_outlined, color: AppColors.emerald),
                     SizedBox(width: 10),
@@ -2716,7 +2823,7 @@ class PaymentMethodsScreen extends StatelessWidget {
                             'Pago seguro',
                             style: TextStyle(
                               fontWeight: FontWeight.w800,
-                              color: AppColors.navy,
+                              color: AppColors.textPrimary,
                             ),
                           ),
                           SizedBox(height: 3),
@@ -2772,7 +2879,7 @@ class PaymentMethodsScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEFF8F4),
+                  color: AppColors.tint,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Row(
@@ -2813,8 +2920,8 @@ class PaymentMethodsScreen extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
-        leading: const CircleAvatar(
-          backgroundColor: Color(0xFFE8F8F2),
+        leading: CircleAvatar(
+          backgroundColor: AppColors.tint,
           child: Icon(Icons.receipt_long_outlined, color: AppColors.emerald),
         ),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
@@ -2985,7 +3092,7 @@ class _PaymentCardTile extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
               decoration: BoxDecoration(
-                color: AppColors.white,
+                color: AppColors.surface,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: const Text(
@@ -3183,7 +3290,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
     return Consumer<AppDataService>(
       builder: (context, data, _) {
         return Scaffold(
-          backgroundColor: AppColors.background,
+          backgroundColor: AppColors.bg,
           appBar: AppBar(
             leading: TextButton.icon(
               onPressed: () => Navigator.pop(context),
@@ -3222,9 +3329,9 @@ class _SecurityScreenState extends State<SecurityScreen> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE8F8F2),
+                  color: AppColors.tint,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFCBEDE0)),
+                  border: Border.all(color: AppColors.line),
                 ),
                 child: const Row(
                   children: [
@@ -3557,6 +3664,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
     final address = TextEditingController(text: data.user.address);
     final birthDate = TextEditingController(text: data.user.birthDate);
     final taxId = TextEditingController(text: data.user.taxId);
+    final messenger = ScaffoldMessenger.of(context);
     String? error;
     await showModalBottomSheet<void>(
       context: context,
@@ -3671,7 +3779,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
                           ),
                         );
                         Navigator.pop(sheetContext);
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger.showSnackBar(
                           const SnackBar(
                             content: Text('Información personal actualizada'),
                           ),
@@ -3687,11 +3795,6 @@ class _SecurityScreenState extends State<SecurityScreen> {
         );
       },
     );
-    name.dispose();
-    phone.dispose();
-    address.dispose();
-    birthDate.dispose();
-    taxId.dispose();
   }
 
   Future<void> _showEmailChange(
@@ -3705,7 +3808,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
       context: context,
       builder: (dialogContext) {
         return StatefulBuilder(
-          builder: (context, setDialogState) {
+          builder: (innerContext, setDialogState) {
             return AlertDialog(
               title: const Text('Cambiar correo electrónico'),
               content: SingleChildScrollView(
@@ -3772,8 +3875,6 @@ class _SecurityScreenState extends State<SecurityScreen> {
         );
       },
     );
-    email.dispose();
-    password.dispose();
   }
 
   Future<void> _showEmailOtp(
@@ -3784,7 +3885,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
     final otp = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Verifica tu correo'),
         content: TextField(
           controller: otp,
@@ -3801,17 +3902,16 @@ class _SecurityScreenState extends State<SecurityScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, otp.text == '123456'),
+            onPressed: () => Navigator.pop(dialogContext, otp.text == '123456'),
             child: const Text('Verificar'),
           ),
         ],
       ),
     );
-    otp.dispose();
     if (confirmed == true) {
       data.updateProfile(data.user.copyWith(email: newEmail));
       if (context.mounted) {
@@ -3832,6 +3932,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
     final current = TextEditingController();
     final pin = TextEditingController();
     final confirm = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
     String? error;
     await showDialog<void>(
       context: context,
@@ -3921,7 +4022,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
                     }
                     data.setPin(pin.text);
                     Navigator.pop(dialogContext);
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    messenger.showSnackBar(
                       const SnackBar(
                         content: Text('PIN configurado correctamente'),
                       ),
@@ -3935,9 +4036,6 @@ class _SecurityScreenState extends State<SecurityScreen> {
         );
       },
     );
-    current.dispose();
-    pin.dispose();
-    confirm.dispose();
   }
 
   Future<void> _exportData(BuildContext context) async {
