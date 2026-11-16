@@ -59,6 +59,7 @@ class _MainScreenState extends State<MainScreen> {
         final unreadMessages = data.totalUnreadMessages;
         return Scaffold(
           body: IndexedStack(index: index, children: screens),
+          floatingActionButton: index == 0 ? const _ChatbotFab() : null,
           bottomNavigationBar: BottomNavigationBar(
             currentIndex: index,
             onTap: (value) => setState(() => index = value),
@@ -92,6 +93,24 @@ class _MainScreenState extends State<MainScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Botón flotante de acceso al asistente estático de LexApp.
+class _ChatbotFab extends StatelessWidget {
+  const _ChatbotFab();
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton(
+      tooltip: 'Asistente LexApp',
+      backgroundColor: AppColors.emerald,
+      foregroundColor: AppColors.white,
+      elevation: 6,
+      shape: const CircleBorder(),
+      onPressed: () => Navigator.pushNamed(context, AppRoutes.chatbot),
+      child: const Icon(Icons.smart_toy_rounded),
     );
   }
 }

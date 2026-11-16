@@ -5,6 +5,7 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/theme_mode_controller.dart';
 import 'screens/splash_screen.dart';
 import 'services/chat_service.dart';
+import 'services/chatbot_service.dart';
 import 'services/app_data_service.dart';
 import 'core/routes/app_routes.dart';
 import 'core/network/api_client.dart';
@@ -25,6 +26,7 @@ class LexApp extends StatelessWidget {
           update: (_, api, __) => BackendRepository(api),
         ),
         ChangeNotifierProvider(create: (_) => ChatService()),
+        ChangeNotifierProvider(create: (_) => ChatbotService()),
         ChangeNotifierProvider(create: (_) => AppDataService()),
       ],
       child: Consumer<ThemeModeController>(
