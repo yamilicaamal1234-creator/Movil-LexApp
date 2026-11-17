@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../screens/chatbot_screen.dart';
 import '../../screens/lexapp_screens.dart';
 import '../../screens/splash_screen.dart';
 
@@ -53,6 +54,7 @@ class AppRoutes {
   static const documents = '/documents';
   static const signature = '/signature';
   static const chat = '/chat';
+  static const chatbot = '/chatbot';
   static const waitingRoom = '/waiting-room';
   static const videoCall = '/video-call';
   static const paymentMethods = '/payment-methods';
@@ -160,6 +162,9 @@ class AppRoutes {
       case chat:
       case m17Chat:
         page = const ChatScreenLex();
+        break;
+      case chatbot:
+        page = const ChatbotScreen();
         break;
       case waitingRoom:
       case m18aWaitingRoom:
