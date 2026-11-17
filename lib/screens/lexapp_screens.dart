@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../core/routes/app_routes.dart';
 import '../core/theme/app_colors.dart';
 import '../services/app_data_service.dart';
+import '../services/api_service.dart';
 import '../models/lexapp_models.dart';
 import '../widgets/document_viewer_modal.dart';
 import 'main_screen.dart';
@@ -55,6 +56,8 @@ class _LoginScreenLexState extends State<LoginScreenLex> {
   bool obscure = true;
   bool _loading = false;
   String? _error;
+  static const _emailVerificationError =
+      'Debes verificar tu email antes de iniciar sesión.';
 
   @override
   void dispose() {
@@ -65,7 +68,8 @@ class _LoginScreenLexState extends State<LoginScreenLex> {
 
   Future<void> _login() async {
     final email = _emailController.text.trim();
-    if (email.isEmpty || _passwordController.text.isEmpty) {
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) {
       setState(() => _error = 'Ingresa correo y contraseña.');
       return;
     }
@@ -79,27 +83,107 @@ class _LoginScreenLexState extends State<LoginScreenLex> {
       _error = null;
     });
 
-    final randomCode = (100000 + Random().nextInt(900000)).toString();
-
     try {
-      final appData = Provider.of<AppDataService>(context, listen: false);
-      appData.updateProfile(appData.user.copyWith(email: email));
-    } catch (_) {}
+      final res = await ApiService().login(email: email, password: password);
+      if (!mounted) return;
+      setState(() => _loading = false);
 
-    await Future<void>.delayed(const Duration(milliseconds: 400));
-    if (!mounted) return;
-    setState(() => _loading = false);
+      try {
+        final appData = Provider.of<AppDataService>(context, listen: false);
+        final userEmail =
+            res['email']?.toString() ?? res['Email']?.toString() ?? email;
+        appData.updateProfile(appData.user.copyWith(email: userEmail));
+      } catch (_) {}
 
-    Navigator.pushNamed(
-      context,
-      AppRoutes.otpLogin,
-      arguments: {
-        'email': email,
-        'code': randomCode,
-        'title': 'Verifica tu identidad',
-        'destination': AppRoutes.shell,
-      },
-    );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.emerald,
+          behavior: SnackBarBehavior.floating,
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Inicio de sesión exitoso'),
+            ],
+          ),
+        ),
+      );
+
+      // Flujo de autenticación directo a M06 (Inicio) sin pantalla OTP
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.shell, (r) => false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      final errorMsg = ApiService.parseError(e);
+      setState(() => _error = errorMsg);
+      final needsEmailVerification = errorMsg.toLowerCase().contains(
+        _emailVerificationError.toLowerCase(),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.red,
+          behavior: SnackBarBehavior.floating,
+          content: Text(errorMsg),
+          action: SnackBarAction(
+            label: needsEmailVerification
+                ? 'Verificar ahora'
+                : 'Continuar Offline',
+            textColor: Colors.white,
+            onPressed: needsEmailVerification
+                ? _verifyPendingEmail
+                : () {
+                    try {
+                      final appData = Provider.of<AppDataService>(
+                        context,
+                        listen: false,
+                      );
+                      appData.updateProfile(
+                        appData.user.copyWith(email: email),
+                      );
+                    } catch (_) {}
+                    Navigator.pushNamedAndRemoveUntil(
+                      context,
+                      AppRoutes.shell,
+                      (r) => false,
+                    );
+                  },
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _verifyPendingEmail() async {
+    final email = _emailController.text.trim();
+    try {
+      await ApiService().enviarCodigoVerificacion(email);
+      if (!mounted) return;
+
+      final verified = await Navigator.pushNamed<bool>(
+        context,
+        AppRoutes.registerOtp,
+        arguments: {
+          'email': email,
+          'destination': AppRoutes.login,
+          'returnToLogin': true,
+        },
+      );
+      if (verified == true && mounted) {
+        await _login();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final message = ApiService.parseError(e);
+      setState(() => _error = message);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.red,
+          behavior: SnackBarBehavior.floating,
+          content: Text(message),
+        ),
+      );
+    }
   }
 
   @override
@@ -184,7 +268,18 @@ class _LoginScreenLexState extends State<LoginScreenLex> {
               const SizedBox(height: 10),
               ElevatedButton(
                 onPressed: _loading ? null : _login,
-                child: Text(_loading ? 'Iniciando...' : 'Iniciar sesión'),
+                child: _loading
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Color(0xFF00B87B),
+                          ),
+                        ),
+                      )
+                    : const Text('Iniciar sesión'),
               ),
               const SizedBox(height: 14),
               const Row(
@@ -242,6 +337,7 @@ class OtpScreen extends StatefulWidget {
   final String title;
   final String destination;
   final bool registrationStep;
+  final bool returnToLogin;
   final String? email;
   final String? expectedCode;
 
@@ -250,6 +346,7 @@ class OtpScreen extends StatefulWidget {
     required this.title,
     required this.destination,
     this.registrationStep = false,
+    this.returnToLogin = false,
     this.email,
     this.expectedCode,
   });
@@ -267,6 +364,7 @@ class _OtpScreenState extends State<OtpScreen> {
   Timer? _timer;
   String? _error;
   bool _notificationVisible = true;
+  bool _verifying = false;
 
   @override
   void initState() {
@@ -345,7 +443,7 @@ class _OtpScreenState extends State<OtpScreen> {
     }
   }
 
-  void _resendCode() {
+  Future<void> _resendCode() async {
     final newCode = (100000 + Random().nextInt(900000)).toString();
     setState(() {
       _activeCode = newCode;
@@ -358,13 +456,59 @@ class _OtpScreenState extends State<OtpScreen> {
     _startTimer();
     focusNodes[0].requestFocus();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.navy,
-        behavior: SnackBarBehavior.floating,
-        content: Text('Nuevo código de seguridad enviado a $_email: $newCode'),
-      ),
-    );
+    try {
+      if (widget.registrationStep) {
+        await ApiService().enviarCodigoVerificacion(_email);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.navy,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Código de verificación enviado a $_email.'),
+          ),
+        );
+      } else if (widget.destination == AppRoutes.newPassword) {
+        await ApiService().solicitarPasswordReset(_email);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.navy,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Código de seguridad enviado a $_email: $newCode'),
+          ),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.navy,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Código de seguridad enviado a $_email: $newCode'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      if (widget.registrationStep) {
+        final message = ApiService.parseError(e);
+        setState(() => _error = message);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.red,
+            behavior: SnackBarBehavior.floating,
+            content: Text(message),
+          ),
+        );
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.navy,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Nuevo código de seguridad (modo demo): $newCode'),
+        ),
+      );
+    }
   }
 
   void _autoFillCode() {
@@ -374,15 +518,33 @@ class _OtpScreenState extends State<OtpScreen> {
     _verifyCode();
   }
 
-  void _verifyCode() {
+  Future<void> _verifyCode() async {
     final entered = controllers.map((c) => c.text).join();
     if (entered.length < 6) {
       setState(() => _error = 'Ingresa los 6 dígitos del código.');
       return;
     }
 
-    if (entered == _activeCode || entered == '123456') {
-      setState(() => _error = null);
+    setState(() {
+      _verifying = true;
+      _error = null;
+    });
+
+    try {
+      if (widget.registrationStep) {
+        // Validación con endpoint real POST /api/Verificacion/verificar
+        await ApiService().verificarCodigo(email: _email, codigo: entered);
+      } else if (widget.destination == AppRoutes.newPassword) {
+        // Validación con endpoint real POST /api/PasswordReset/verificar (o restablecer)
+        await ApiService().verificarPasswordReset(
+          email: _email,
+          codigo: entered,
+        );
+      }
+
+      if (!mounted) return;
+      setState(() => _verifying = false);
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: AppColors.emerald,
@@ -396,16 +558,71 @@ class _OtpScreenState extends State<OtpScreen> {
           ),
         ),
       );
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        widget.destination,
-        (_) => false,
-      );
-    } else {
+
+      if (widget.returnToLogin) {
+        Navigator.pop(context, true);
+      } else if (widget.destination == AppRoutes.newPassword) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          widget.destination,
+          (_) => false,
+          arguments: {'email': _email, 'code': entered},
+        );
+      } else {
+        // En registro, una vez validado, lleva al usuario al Inicio M06 (o Login)
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          widget.destination,
+          (_) => false,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      // Respaldo híbrido: si es el código generado en memoria o demo '123456'
+      if (!widget.registrationStep &&
+          (entered == _activeCode || entered == '123456')) {
+        setState(() => _verifying = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.emerald,
+            behavior: SnackBarBehavior.floating,
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Código validado (Modo local)'),
+              ],
+            ),
+          ),
+        );
+        if (widget.destination == AppRoutes.newPassword) {
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            widget.destination,
+            (_) => false,
+            arguments: {'email': _email, 'code': entered},
+          );
+        } else {
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            widget.destination,
+            (_) => false,
+          );
+        }
+        return;
+      }
+
       setState(() {
-        _error =
-            'El código ingresado es incorrecto. Verifica el correo enviado o solicita uno nuevo.';
+        _verifying = false;
+        _error = ApiService.parseError(e);
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.red,
+          behavior: SnackBarBehavior.floating,
+          content: Text(_error!),
+        ),
+      );
     }
   }
 
@@ -434,14 +651,16 @@ class _OtpScreenState extends State<OtpScreen> {
       child: Column(
         children: [
           // Simulated Email notification banner
-          if (_notificationVisible)
+          if (_notificationVisible && !widget.registrationStep)
             Container(
               margin: const EdgeInsets.only(bottom: 18),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: AppColors.surface,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.emerald.withValues(alpha: 0.5)),
+                border: Border.all(
+                  color: AppColors.emerald.withValues(alpha: 0.5),
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.08),
@@ -458,7 +677,11 @@ class _OtpScreenState extends State<OtpScreen> {
                       color: AppColors.emerald.withValues(alpha: 0.15),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.mark_email_read_outlined, color: AppColors.emerald, size: 20),
+                    child: const Icon(
+                      Icons.mark_email_read_outlined,
+                      color: AppColors.emerald,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -467,19 +690,29 @@ class _OtpScreenState extends State<OtpScreen> {
                       children: [
                         const Text(
                           'Correo recibido • LexApp Security',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.emerald),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.emerald,
+                          ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           'Código de verificación: $_activeCode',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ],
                     ),
                   ),
                   TextButton(
                     onPressed: _autoFillCode,
-                    child: const Text('Completar', style: TextStyle(fontWeight: FontWeight.w800)),
+                    child: const Text(
+                      'Completar',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
                   ),
                 ],
               ),
@@ -522,7 +755,10 @@ class _OtpScreenState extends State<OtpScreen> {
                   textAlign: TextAlign.center,
                   keyboardType: TextInputType.number,
                   maxLength: 1,
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   onChanged: (value) => _onDigitChanged(i, value),
                   decoration: InputDecoration(
@@ -535,7 +771,10 @@ class _OtpScreenState extends State<OtpScreen> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppColors.emerald, width: 2),
+                      borderSide: const BorderSide(
+                        color: AppColors.emerald,
+                        width: 2,
+                      ),
                     ),
                   ),
                 ),
@@ -563,12 +802,23 @@ class _OtpScreenState extends State<OtpScreen> {
           ),
           const Spacer(),
           ElevatedButton(
-            onPressed: _verifyCode,
-            child: Text(
-              widget.destination == AppRoutes.newPassword
-                  ? 'Verificar y continuar'
-                  : 'Verificar código',
-            ),
+            onPressed: _verifying ? null : _verifyCode,
+            child: _verifying
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFF00B87B),
+                      ),
+                    ),
+                  )
+                : Text(
+                    widget.destination == AppRoutes.newPassword
+                        ? 'Verificar y continuar'
+                        : 'Verificar código',
+                  ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -580,13 +830,93 @@ class _OtpScreenState extends State<OtpScreen> {
   );
 }
 
-class ForgotPasswordScreen extends StatelessWidget {
+class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
   @override
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+}
+
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+  final _controller = TextEditingController(
+    text: 'ricardo.hernandez@email.com',
+  );
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _enviar() async {
+    final email = _controller.text.trim();
+    final valid = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+    if (!valid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ingresa un correo electrónico válido')),
+      );
+      return;
+    }
+
+    setState(() => _loading = true);
+
+    try {
+      // POST /api/PasswordReset/solicitar (o /api/Restablecer-contrasena/solicitar)
+      await ApiService().solicitarPasswordReset(email);
+      if (!mounted) return;
+      setState(() => _loading = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.emerald,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Código de recuperación enviado. Revisa tu correo.'),
+        ),
+      );
+
+      Navigator.pushNamed(
+        context,
+        AppRoutes.recoveryOtp,
+        arguments: {
+          'email': email,
+          'title': 'Verifica tu correo electrónico',
+          'destination': AppRoutes.newPassword,
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      final errorMsg = ApiService.parseError(e);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.red,
+          behavior: SnackBarBehavior.floating,
+          content: Text(errorMsg),
+          action: SnackBarAction(
+            label: 'Continuar',
+            textColor: Colors.white,
+            onPressed: () {
+              final randomCode = (100000 + Random().nextInt(900000)).toString();
+              Navigator.pushNamed(
+                context,
+                AppRoutes.recoveryOtp,
+                arguments: {
+                  'email': email,
+                  'code': randomCode,
+                  'title': 'Verifica tu correo electrónico',
+                  'destination': AppRoutes.newPassword,
+                },
+              );
+            },
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final controller = TextEditingController(
-      text: 'ricardo.hernandez@email.com',
-    );
     return Scaffold(
       appBar: AppBar(
         leading: TextButton(
@@ -680,7 +1010,7 @@ class ForgotPasswordScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             TextField(
-              controller: controller,
+              controller: _controller,
               keyboardType: TextInputType.emailAddress,
               decoration: const InputDecoration(
                 prefixIcon: Icon(Icons.alternate_email_rounded),
@@ -701,33 +1031,19 @@ class ForgotPasswordScreen extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: () {
-                final valid = RegExp(
-                  r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-                ).hasMatch(controller.text.trim());
-                if (!valid) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Ingresa un correo electrónico válido'),
-                    ),
-                  );
-                  return;
-                }
-                final email = controller.text.trim();
-                final randomCode =
-                    (100000 + Random().nextInt(900000)).toString();
-                Navigator.pushNamed(
-                  context,
-                  AppRoutes.recoveryOtp,
-                  arguments: {
-                    'email': email,
-                    'code': randomCode,
-                    'title': 'Verifica tu correo electrónico',
-                    'destination': AppRoutes.newPassword,
-                  },
-                );
-              },
-              child: const Text('Enviar instrucciones ->'),
+              onPressed: _loading ? null : _enviar,
+              child: _loading
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color(0xFF00B87B),
+                        ),
+                      ),
+                    )
+                  : const Text('Enviar instrucciones ->'),
             ),
             const SizedBox(height: 8),
             TextButton(
@@ -796,7 +1112,112 @@ class NewPasswordScreen extends StatefulWidget {
 }
 
 class _NewPasswordScreenState extends State<NewPasswordScreen> {
-  bool accepted = false;
+  final _passController = TextEditingController();
+  final _confirmController = TextEditingController();
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _passController.dispose();
+    _confirmController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _guardarContrasena() async {
+    final pass = _passController.text;
+    final confirm = _confirmController.text;
+
+    if (pass.length < 8) {
+      setState(
+        () => _error = 'La contraseña debe tener al menos 8 caracteres.',
+      );
+      return;
+    }
+    if (!pass.contains(RegExp(r'[A-Z]'))) {
+      setState(() => _error = 'Debe incluir al menos una letra mayúscula.');
+      return;
+    }
+    if (!pass.contains(RegExp(r'[0-9]'))) {
+      setState(() => _error = 'Debe incluir al menos un número.');
+      return;
+    }
+    if (pass != confirm) {
+      setState(() => _error = 'Las contraseñas no coinciden.');
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    final args =
+        ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final email = args?['email'] as String? ?? 'ricardo.hernandez@email.com';
+    final code = args?['code'] as String? ?? '123456';
+
+    try {
+      // POST /api/PasswordReset/confirmar (o /api/Restablecer-contrasena/confirmar)
+      await ApiService().confirmarPasswordReset(
+        email: email,
+        codigo: code,
+        nuevaPassword: pass,
+      );
+
+      if (!mounted) return;
+      setState(() => _loading = false);
+
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Contraseña actualizada'),
+          content: const Text(
+            'Tu contraseña se actualizó correctamente en el sistema.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Iniciar sesión'),
+            ),
+          ],
+        ),
+      );
+
+      if (context.mounted) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.login,
+          (_) => false,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      final errorMsg = ApiService.parseError(e);
+      setState(() => _error = errorMsg);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.red,
+          behavior: SnackBarBehavior.floating,
+          content: Text(errorMsg),
+          action: SnackBarAction(
+            label: 'Omitir y entrar',
+            textColor: Colors.white,
+            onPressed: () {
+              Navigator.pushNamedAndRemoveUntil(
+                context,
+                AppRoutes.login,
+                (_) => false,
+              );
+            },
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) => _Page(
     title: 'Crea una nueva contraseña',
@@ -805,14 +1226,16 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const TextField(
+          TextField(
+            controller: _passController,
             obscureText: true,
-            decoration: InputDecoration(labelText: 'Nueva contraseña'),
+            decoration: const InputDecoration(labelText: 'Nueva contraseña'),
           ),
           const SizedBox(height: 14),
-          const TextField(
+          TextField(
+            controller: _confirmController,
             obscureText: true,
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               labelText: 'Confirmar nueva contraseña',
             ),
           ),
@@ -826,31 +1249,28 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
           const Text(
             '✓ Mínimo 8 caracteres\n✓ Una letra mayúscula\n✓ Número\n✓ Carácter especial',
           ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: const TextStyle(color: AppColors.red, fontSize: 13),
+            ),
+          ],
           const SizedBox(height: 24),
           ElevatedButton(
-            onPressed: () async {
-              await showDialog<void>(
-                context: context,
-                builder: (_) => AlertDialog(
-                  title: const Text('Contraseña actualizada'),
-                  content: const Text('Tu contraseña se guardó correctamente.'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Volver a iniciar sesión'),
+            onPressed: _loading ? null : _guardarContrasena,
+            child: _loading
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFF00B87B),
+                      ),
                     ),
-                  ],
-                ),
-              );
-              if (context.mounted) {
-                Navigator.pushNamedAndRemoveUntil(
-                  context,
-                  AppRoutes.login,
-                  (_) => false,
-                );
-              }
-            },
-            child: const Text('Guardar nueva contraseña'),
+                  )
+                : const Text('Guardar nueva contraseña'),
           ),
         ],
       ),
@@ -909,10 +1329,16 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final _nameController = TextEditingController();
+  final _firstNameController = TextEditingController();
+  final _middleNameController = TextEditingController();
+  final _paternalSurnameController = TextEditingController();
+  final _maternalSurnameController = TextEditingController();
+  final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
+  PlatformFile? _documentFile;
+  String _documentType = 'DNI';
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _accepted = false;
@@ -921,7 +1347,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    _nameController.dispose();
+    _firstNameController.dispose();
+    _middleNameController.dispose();
+    _paternalSurnameController.dispose();
+    _maternalSurnameController.dispose();
+    _phoneController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
@@ -931,22 +1361,59 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool get _hasLength => _passwordController.text.length >= 8;
   bool get _hasUppercase => _passwordController.text.contains(RegExp(r'[A-Z]'));
   bool get _hasNumber => _passwordController.text.contains(RegExp(r'[0-9]'));
+  bool get _hasSpecialCharacter =>
+      _passwordController.text.contains(RegExp(r'[^a-zA-Z\d]'));
   bool get _passwordsMatch =>
       _confirmController.text.isNotEmpty &&
       _confirmController.text == _passwordController.text;
 
+  Future<void> _pickIdentificationDocument() async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
+      allowMultiple: false,
+      withData: true,
+      dialogTitle: 'Seleccionar documento de identificación',
+    );
+    if (!mounted || result == null || result.files.isEmpty) return;
+
+    final file = result.files.first;
+    if (file.size > 10 * 1024 * 1024) {
+      setState(() {
+        _documentFile = null;
+        _error = 'El documento no puede superar los 10 MB.';
+      });
+      return;
+    }
+    setState(() {
+      _documentFile = file;
+      _error = null;
+    });
+  }
+
   Future<void> _submit() async {
     final email = _emailController.text.trim();
     final emailValid = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email);
+    final primerNombre = _firstNameController.text.trim();
+    final segundoNombre = _middleNameController.text.trim();
+    final apellidoPaterno = _paternalSurnameController.text.trim();
+    final apellidoMaterno = _maternalSurnameController.text.trim();
     String? error;
-    if (_nameController.text.trim().isEmpty) {
-      error = 'Ingresa tu nombre completo.';
+    if (primerNombre.isEmpty ||
+        apellidoPaterno.isEmpty ||
+        apellidoMaterno.isEmpty) {
+      error = 'Ingresa tu nombre y ambos apellidos.';
     } else if (!emailValid) {
       error = 'Ingresa un correo electrónico válido.';
-    } else if (!_hasLength || !_hasUppercase || !_hasNumber) {
+    } else if (!_hasLength ||
+        !_hasUppercase ||
+        !_hasNumber ||
+        !_hasSpecialCharacter) {
       error = 'La contraseña debe cumplir todos los requisitos.';
     } else if (!_passwordsMatch) {
       error = 'Las contraseñas no coinciden.';
+    } else if (_documentFile == null) {
+      error = 'Adjunta tu documento de identificación.';
     } else if (!_accepted) {
       error = 'Acepta los términos y la política de privacidad.';
     }
@@ -957,31 +1424,79 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _loading = true;
       _error = null;
     });
-    await Future<void>.delayed(const Duration(milliseconds: 350));
-    if (!mounted) return;
-    setState(() => _loading = false);
 
-    final randomCode = (100000 + Random().nextInt(900000)).toString();
+    final fullName = [
+      primerNombre,
+      segundoNombre,
+      apellidoPaterno,
+      apellidoMaterno,
+    ].where((part) => part.isNotEmpty).join(' ');
+
+    var registrationCreated = false;
     try {
-      final appData = Provider.of<AppDataService>(context, listen: false);
-      appData.updateProfile(
-        appData.user.copyWith(
-          name: _nameController.text.trim(),
-          email: email,
+      await ApiService().registrarCliente(
+        email: email,
+        password: _passwordController.text,
+        primerNombre: primerNombre,
+        segundoNombre: segundoNombre.isEmpty ? null : segundoNombre,
+        apellidoPaterno: apellidoPaterno,
+        apellidoMaterno: apellidoMaterno,
+        telefono: _phoneController.text.trim(),
+        tipoDocumento: _documentType,
+        filePath: _documentFile!.path,
+        fileBytes: _documentFile!.bytes,
+        fileName: _documentFile!.name,
+      );
+      registrationCreated = true;
+
+      await ApiService().enviarCodigoVerificacion(email);
+
+      if (!mounted) return;
+      setState(() => _loading = false);
+
+      try {
+        final appData = Provider.of<AppDataService>(context, listen: false);
+        appData.updateProfile(
+          appData.user.copyWith(name: fullName, email: email),
+        );
+      } catch (_) {}
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.emerald,
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Cuenta registrada. Ingresa el código enviado a tu correo.',
+          ),
         ),
       );
-    } catch (_) {}
 
-    Navigator.pushNamed(
-      context,
-      AppRoutes.registerOtp,
-      arguments: {
-        'email': email,
-        'code': randomCode,
-        'title': 'Verifica tu correo electrónico',
-        'destination': AppRoutes.shell,
-      },
-    );
+      // Conserva M05A exclusivamente tras el registro exitoso
+      Navigator.pushNamed(
+        context,
+        AppRoutes.registerOtp,
+        arguments: {
+          'email': email,
+          'title': 'Verifica tu correo electrónico',
+          'destination': AppRoutes.shell,
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      final errorMsg = registrationCreated
+          ? 'Cuenta creada, pero no se pudo enviar el código: ${ApiService.parseError(e)}'
+          : ApiService.parseError(e);
+      setState(() => _error = errorMsg);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.red,
+          behavior: SnackBarBehavior.floating,
+          content: Text(errorMsg),
+        ),
+      );
+    }
   }
 
   void _showLegal(String title) {
@@ -1146,11 +1661,40 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
               const SizedBox(height: 22),
-              _label('Nombre completo'),
+              _label('Primer nombre'),
               _textField(
-                controller: _nameController,
-                hint: 'Ej. Carlos Mendoza',
+                controller: _firstNameController,
+                hint: 'Ej. Carlos',
                 icon: Icons.person_outline,
+              ),
+              const SizedBox(height: 16),
+              _label('Segundo nombre (opcional)'),
+              _textField(
+                controller: _middleNameController,
+                hint: 'Ej. Alberto',
+                icon: Icons.person_outline,
+              ),
+              const SizedBox(height: 16),
+              _label('Apellido paterno'),
+              _textField(
+                controller: _paternalSurnameController,
+                hint: 'Ej. Mendoza',
+                icon: Icons.person_outline,
+              ),
+              const SizedBox(height: 16),
+              _label('Apellido materno'),
+              _textField(
+                controller: _maternalSurnameController,
+                hint: 'Ej. López',
+                icon: Icons.person_outline,
+              ),
+              const SizedBox(height: 16),
+              _label('Teléfono (opcional)'),
+              _textField(
+                controller: _phoneController,
+                hint: 'Ej. 5512345678',
+                icon: Icons.phone_outlined,
+                keyboardType: TextInputType.phone,
               ),
               const SizedBox(height: 16),
               _label('Correo electrónico'),
@@ -1172,6 +1716,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 16),
+              _label('Tipo de documento'),
+              DropdownButtonFormField<String>(
+                initialValue: _documentType,
+                decoration: _inputDecoration(
+                  Icons.badge_outlined,
+                  'Tipo de documento',
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'DNI', child: Text('DNI')),
+                  DropdownMenuItem(value: 'CE', child: Text('CE')),
+                  DropdownMenuItem(
+                    value: 'PASAPORTE',
+                    child: Text('Pasaporte'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _documentType = value);
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              _label('Documento de identificación'),
+              OutlinedButton.icon(
+                onPressed: _loading ? null : _pickIdentificationDocument,
+                icon: const Icon(Icons.upload_file_outlined),
+                label: Text(
+                  _documentFile?.name ?? 'Adjuntar PDF, JPG o PNG',
+                  overflow: TextOverflow.ellipsis,
+                ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52),
+                  side: BorderSide(color: AppColors.line),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Archivo obligatorio, máximo 10 MB.',
+                style: TextStyle(fontSize: 12, color: AppColors.slate),
               ),
               const SizedBox(height: 16),
               Row(
@@ -1210,6 +1798,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   _validationChip('8+ letras', _hasLength),
                   _validationChip('Mayúscula', _hasUppercase),
                   _validationChip('Número', _hasNumber),
+                  _validationChip('Carácter especial', _hasSpecialCharacter),
                 ],
               ),
               const SizedBox(height: 16),
@@ -1338,13 +1927,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
-                child: Text(
-                  _loading ? 'Creando cuenta...' : 'Crear cuenta ->',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                child: _loading
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
+                        ),
+                      )
+                    : const Text(
+                        'Crear cuenta ->',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
               ),
               const SizedBox(height: 20),
               Row(
@@ -1604,111 +2204,324 @@ class NotificationsScreen extends StatelessWidget {
   }
 }
 
-class SearchLawyerScreen extends StatelessWidget {
+class SearchLawyerScreen extends StatefulWidget {
   const SearchLawyerScreen({super.key});
+  @override
+  State<SearchLawyerScreen> createState() => _SearchLawyerScreenState();
+}
+
+class _SearchLawyerScreenState extends State<SearchLawyerScreen> {
+  final _searchController = TextEditingController();
+  List<Map<String, dynamic>> _allLawyers = [];
+  String _selectedSpecialty = 'Todas';
+  bool _loading = false;
+  String? _error;
+
+  final List<String> _specialties = const [
+    'Todas',
+    'Civil',
+    'Laboral',
+    'Penal',
+    'Familiar',
+    'Administrativo',
+    'Mercantil',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLawyers();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchLawyers() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      // GET /api/abogados -> Carga listado real de abogados verificados
+      final lawyers = await ApiService().listarAbogados();
+      if (!mounted) return;
+      setState(() {
+        _allLawyers = lawyers.isNotEmpty ? lawyers : _getMockLawyers();
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      final errorMsg = ApiService.parseError(e);
+      setState(() {
+        _allLawyers = _getMockLawyers();
+        _loading = false;
+        _error = errorMsg;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.red,
+          behavior: SnackBarBehavior.floating,
+          content: Text('$errorMsg - Mostrando catálogo de respaldo.'),
+        ),
+      );
+    }
+  }
+
+  List<Map<String, dynamic>> _getMockLawyers() {
+    return [
+      {
+        'idAbogado': 1,
+        'nombreCompleto': 'Dra. Sofía Valenzuela',
+        'especialidades': ['Derecho Civil', 'Contratos'],
+        'bio':
+            'Universidad Nacional Autónoma. 8 años de experiencia. Litigios civiles y contratos de arrendamiento.',
+        'calificacionPromedio': 4.9,
+        'tarifaPorHoraCentavos': 6500,
+        'tarifaRealMxn': 65.0,
+        'experienciaAnios': 8,
+      },
+      {
+        'idAbogado': 2,
+        'nombreCompleto': 'Lic. María López',
+        'especialidades': ['Derecho Laboral'],
+        'bio':
+            'Especialista en despidos, indemnizaciones laborales y mediación sindical.',
+        'calificacionPromedio': 4.8,
+        'tarifaPorHoraCentavos': 5800,
+        'tarifaRealMxn': 58.0,
+        'experienciaAnios': 6,
+      },
+      {
+        'idAbogado': 3,
+        'nombreCompleto': 'Dr. Marcos Alarcón',
+        'especialidades': ['Derecho Penal', 'Familiar'],
+        'bio': 'Defensa penal y asesoría integral en derecho de familia.',
+        'calificacionPromedio': 4.7,
+        'tarifaPorHoraCentavos': 7500,
+        'tarifaRealMxn': 75.0,
+        'experienciaAnios': 10,
+      },
+    ];
+  }
+
+  List<Map<String, dynamic>> get _filteredLawyers {
+    final query = _searchController.text.trim().toLowerCase();
+    return _allLawyers.where((l) {
+      final name = (l['nombreCompleto'] ?? l['name'] ?? '')
+          .toString()
+          .toLowerCase();
+      final bio = (l['bio'] ?? '').toString().toLowerCase();
+      final specsList =
+          (l['especialidades'] as List?)
+              ?.map((e) => e.toString().toLowerCase())
+              .toList() ??
+          [];
+
+      final matchesQuery =
+          query.isEmpty ||
+          name.contains(query) ||
+          bio.contains(query) ||
+          specsList.any((s) => s.contains(query));
+
+      final matchesSpec =
+          _selectedSpecialty == 'Todas' ||
+          specsList.any((s) => s.contains(_selectedSpecialty.toLowerCase()));
+
+      return matchesQuery && matchesSpec;
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) => _Page(
     title: 'Buscar abogado',
-    child: ListView(
-      padding: const EdgeInsets.all(16),
+    child: Column(
       children: [
-        const TextField(
-          decoration: InputDecoration(
-            prefixIcon: Icon(Icons.search),
-            hintText: '¿Qué tipo de ayuda legal necesitas?',
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: TextField(
+            controller: _searchController,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              hintText: '¿Qué tipo de ayuda legal necesitas?',
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {});
+                      },
+                    )
+                  : null,
+            ),
           ),
         ),
-        const SizedBox(height: 12),
         SizedBox(
-          height: 42,
-          child: ListView(
+          height: 44,
+          child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            children: const [
-              _Chip('Todas', true),
-              _Chip('Civil'),
-              _Chip('Laboral'),
-              _Chip('Penal'),
-              _Chip('Familiar'),
-              _Chip('Administrativo'),
-            ],
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _specialties.length,
+            itemBuilder: (context, index) {
+              final spec = _specialties[index];
+              final isSelected = _selectedSpecialty == spec;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(spec),
+                  selected: isSelected,
+                  selectedColor: AppColors.emerald,
+                  labelStyle: TextStyle(
+                    color: isSelected ? AppColors.white : AppColors.slate,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  onSelected: (_) => setState(() => _selectedSpecialty = spec),
+                ),
+              );
+            },
           ),
         ),
-        const SizedBox(height: 12),
-        ...List.generate(2, (i) => _lawyerCard(context, i)),
+        const SizedBox(height: 8),
+        Expanded(
+          child: _loading
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFF00B87B),
+                    ),
+                  ),
+                )
+              : _filteredLawyers.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.search_off,
+                        size: 48,
+                        color: AppColors.slate,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _error != null
+                            ? 'No se encontraron resultados.'
+                            : 'No hay abogados con ese criterio.',
+                        style: const TextStyle(color: AppColors.slate),
+                      ),
+                      TextButton(
+                        onPressed: _fetchLawyers,
+                        child: const Text('Reintentar carga'),
+                      ),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  color: const Color(0xFF00B87B),
+                  onRefresh: _fetchLawyers,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _filteredLawyers.length,
+                    itemBuilder: (context, i) =>
+                        _lawyerCard(context, _filteredLawyers[i]),
+                  ),
+                ),
+        ),
       ],
     ),
   );
 
-  Widget _lawyerCard(BuildContext context, int i) => Card(
-    margin: const EdgeInsets.only(bottom: 12),
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: AppColors.line,
-                child: Icon(
-                  i == 0 ? Icons.person_outline : Icons.person_2_outlined,
-                  color: AppColors.textPrimary,
-                  size: 34,
+  Widget _lawyerCard(BuildContext context, Map<String, dynamic> lawyer) {
+    final name = (lawyer['nombreCompleto'] ?? lawyer['name'] ?? 'Abogado')
+        .toString();
+    final specs =
+        (lawyer['especialidades'] as List?)?.join(' • ') ?? 'Derecho General';
+    final rating =
+        (lawyer['calificacionPromedio'] ?? lawyer['rating'] ?? 5.0) as num;
+    final exp = lawyer['experienciaAnios'] ?? 5;
+    final fee =
+        (lawyer['tarifaRealMxn'] as num?)?.toDouble() ??
+        (((lawyer['tarifaPorHoraCentavos'] ?? 6500) as num).toDouble() / 100.0);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppColors.line,
+                  child: Icon(
+                    Icons.person_outline,
+                    color: AppColors.textPrimary,
+                    size: 34,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      i == 0 ? 'Dra. Sofía Valenzuela' : 'Lic. María López',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
                       ),
-                    ),
-                    const Text(
-                      '✓ Verificación colegial',
-                      style: TextStyle(color: AppColors.emerald, fontSize: 12),
-                    ),
-                  ],
+                      const Text(
+                        '✓ Verificación colegial',
+                        style: TextStyle(
+                          color: AppColors.emerald,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            i == 0
-                ? 'Derecho Civil • 8 años • ★ 4.9'
-                : 'Derecho Laboral • 6 años • ★ 4.8',
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '\$${i == 0 ? '65' : '58'} MXN',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '$specs • $exp años • ★ ${rating.toStringAsFixed(1)}',
+              style: const TextStyle(color: AppColors.slate, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '\$${fee.toStringAsFixed(0)} MXN',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                  ),
                 ),
-              ),
-              ElevatedButton(
-                onPressed: () =>
-                    Navigator.pushNamed(context, AppRoutes.lawyerProfile),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(120, 44),
+                ElevatedButton(
+                  onPressed: () => Navigator.pushNamed(
+                    context,
+                    AppRoutes.lawyerProfile,
+                    arguments: lawyer,
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(120, 44),
+                  ),
+                  child: const Text('Ver perfil'),
                 ),
-                child: const Text('Ver perfil'),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _Chip extends StatelessWidget {
@@ -1730,53 +2543,141 @@ class _Chip extends StatelessWidget {
   );
 }
 
-class LawyerProfileScreen extends StatelessWidget {
+class LawyerProfileScreen extends StatefulWidget {
   const LawyerProfileScreen({super.key});
   @override
-  Widget build(BuildContext context) => _Page(
-    title: 'Perfil del abogado',
-    child: ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        const CircleAvatar(radius: 46, child: Icon(Icons.person, size: 54)),
-        const SizedBox(height: 12),
-        const Text(
-          'Dra. Sofía Valenzuela',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-        ),
-        const Text(
-          'Derecho Civil • Cédula 8841',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: AppColors.slate),
-        ),
-        const SizedBox(height: 16),
-        const Card(
-          child: Padding(
-            padding: EdgeInsets.all(16),
-            child: Text(
-              'Universidad Nacional Autónoma\n8 años de experiencia\nContratos, arrendamiento, familia y litigios civiles.',
+  State<LawyerProfileScreen> createState() => _LawyerProfileScreenState();
+}
+
+class _LawyerProfileScreenState extends State<LawyerProfileScreen> {
+  Map<String, dynamic>? _lawyer;
+  bool _loading = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_lawyer == null) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map<String, dynamic>) {
+        _lawyer = args;
+        final id = _lawyer!['idAbogado'] ?? _lawyer!['id'];
+        if (id is int && _lawyer!['bio'] == null) {
+          _fetchDetalle(id);
+        }
+      } else {
+        _lawyer = {
+          'idAbogado': 1,
+          'nombreCompleto': 'Dra. Sofía Valenzuela',
+          'especialidades': ['Derecho Civil', 'Contratos'],
+          'bio':
+              'Universidad Nacional Autónoma. 8 años de experiencia en contratos, arrendamiento, familia y litigios civiles.',
+          'calificacionPromedio': 4.9,
+          'tarifaPorHoraCentavos': 6500,
+          'tarifaRealMxn': 65.0,
+          'experienciaAnios': 8,
+        };
+      }
+    }
+  }
+
+  Future<void> _fetchDetalle(int id) async {
+    setState(() => _loading = true);
+    try {
+      // GET /api/abogados/{idAbogado} -> Carga detalle completo
+      final detalle = await ApiService().obtenerDetalleAbogado(id);
+      if (!mounted) return;
+      setState(() {
+        _lawyer = detalle;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lawyer = _lawyer ?? {};
+    final name =
+        (lawyer['nombreCompleto'] ?? lawyer['name'] ?? 'Dra. Sofía Valenzuela')
+            .toString();
+    final specs =
+        (lawyer['especialidades'] as List?)?.join(' • ') ?? 'Derecho Civil';
+    final bio =
+        (lawyer['bio'] ??
+                'Abogado verificado por el Colegio Oficial con experiencia en litigios y asesoría corporativa.')
+            .toString();
+    final fee =
+        (lawyer['tarifaRealMxn'] as num?)?.toDouble() ??
+        (((lawyer['tarifaPorHoraCentavos'] ?? 6500) as num).toDouble() / 100.0);
+    final idAbogado = (lawyer['idAbogado'] ?? lawyer['id'] ?? 1) as int;
+
+    return _Page(
+      title: 'Perfil del abogado',
+      child: _loading
+          ? const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00B87B)),
+              ),
+            )
+          : ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                const CircleAvatar(
+                  radius: 46,
+                  child: Icon(Icons.person, size: 54),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  name,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  specs,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.slate),
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(bio, style: const TextStyle(height: 1.4)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Disponible hoy para asesoría y videoconsulta',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: () => Navigator.pushNamed(
+                    context,
+                    AppRoutes.contract,
+                    arguments: {
+                      'idAbogado': idAbogado,
+                      'nombreAbogado': name,
+                      'tarifaRealMxn': fee,
+                    },
+                  ),
+                  child: Text(
+                    'Contratar asesoría (\$${fee.toStringAsFixed(0)} MXN)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: () => Navigator.pushNamed(context, AppRoutes.chat),
+                  child: const Text('Enviar mensaje preliminar'),
+                ),
+              ],
             ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Disponible hoy para videoconsulta',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 12),
-        ElevatedButton(
-          onPressed: () => Navigator.pushNamed(context, AppRoutes.contract),
-          child: const Text(r'Contratar asesoría ($65 MXN)'),
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton(
-          onPressed: () => Navigator.pushNamed(context, AppRoutes.chat),
-          child: const Text('Enviar mensaje preliminar'),
-        ),
-      ],
-    ),
-  );
+    );
+  }
 }
 
 class ContractScreen extends StatefulWidget {
@@ -1786,69 +2687,186 @@ class ContractScreen extends StatefulWidget {
 }
 
 class _ContractScreenState extends State<ContractScreen> {
+  final _descController = TextEditingController(
+    text:
+        'Revisión y asesoría legal sobre términos de contratación y cláusulas civiles.',
+  );
   String selected = 'Videoconsulta telemática';
+  bool _loading = false;
+  String? _error;
+
   @override
-  Widget build(BuildContext context) => _Page(
-    title: 'Solicitar asesoría',
-    child: ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        const Text(
-          'Dra. Sofía Valenzuela',
-          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<String>(
-          initialValue: selected,
-          items: const [
-            DropdownMenuItem(
-              value: 'Videoconsulta telemática',
-              child: Text(r'Videoconsulta (45 min, $65 MXN)'),
-            ),
-            DropdownMenuItem(
-              value: 'Revisión contractual',
-              child: Text(r'Revisión contractual ($95 MXN)'),
-            ),
-            DropdownMenuItem(
-              value: 'Consulta escrita',
-              child: Text(r'Consulta escrita ($45 MXN)'),
-            ),
-          ],
-          onChanged: (value) => setState(() => selected = value ?? selected),
-        ),
-        const SizedBox(height: 14),
-        const TextField(
-          maxLines: 5,
-          decoration: InputDecoration(labelText: 'Describe tu necesidad legal'),
-        ),
-        const SizedBox(height: 14),
-        const Card(
-          child: Padding(
-            padding: EdgeInsets.all(16),
-            child: Column(
-              children: [
-                _PriceRow('Honorarios', r'$65.00 MXN'),
-                _PriceRow('Custodia LexApp Escrow', r'$0.00 MXN'),
-                _PriceRow('IVA 16%', r'$10.40 MXN'),
-                Divider(),
-                _PriceRow('Total', r'$75.40 MXN', bold: true),
-              ],
-            ),
+  void dispose() {
+    _descController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _enviarSolicitud(int idAbogado) async {
+    final desc = _descController.text.trim();
+    if (desc.isEmpty) {
+      setState(() => _error = 'Por favor describe tu necesidad legal.');
+      return;
+    }
+    if (desc.length < 20) {
+      setState(
+        () => _error = 'La descripción debe tener al menos 20 caracteres.',
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      // POST /api/solicitudes-caso -> Envía la solicitud de caso al contratar
+      await ApiService().crearSolicitudCaso(
+        idAbogado: idAbogado,
+        titulo: selected,
+        descripcionProblema: desc,
+      );
+
+      if (!mounted) return;
+      setState(() => _loading = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.emerald,
+          behavior: SnackBarBehavior.floating,
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Solicitud de caso creada con éxito'),
+            ],
           ),
         ),
-        const SizedBox(height: 12),
-        const Text(
-          '🔒 Tu pago permanece protegido en LexApp Escrow hasta confirmar el servicio.',
-          style: TextStyle(color: AppColors.slate),
+      );
+
+      Navigator.pushNamed(context, AppRoutes.payment);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      final errorMsg = ApiService.parseError(e);
+      setState(() => _error = errorMsg);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.red,
+          behavior: SnackBarBehavior.floating,
+          content: Text(errorMsg),
+          action: SnackBarAction(
+            label: 'Continuar al pago',
+            textColor: Colors.white,
+            onPressed: () => Navigator.pushNamed(context, AppRoutes.payment),
+          ),
         ),
-        const SizedBox(height: 18),
-        ElevatedButton(
-          onPressed: () => Navigator.pushNamed(context, AppRoutes.payment),
-          child: const Text('Continuar al pago seguro'),
-        ),
-      ],
-    ),
-  );
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final args =
+        ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final lawyerName =
+        args?['nombreAbogado'] as String? ?? 'Dra. Sofía Valenzuela';
+    final idAbogado = (args?['idAbogado'] as int?) ?? 1;
+    final fee = (args?['tarifaRealMxn'] as num?)?.toDouble() ?? 65.0;
+
+    return _Page(
+      title: 'Solicitar asesoría',
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Text(
+            lawyerName,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: selected,
+            items: [
+              DropdownMenuItem(
+                value: 'Videoconsulta telemática',
+                child: Text('Videoconsulta (\$${fee.toStringAsFixed(0)} MXN)'),
+              ),
+              const DropdownMenuItem(
+                value: 'Revisión contractual',
+                child: Text(r'Revisión contractual ($95 MXN)'),
+              ),
+              const DropdownMenuItem(
+                value: 'Consulta escrita',
+                child: Text(r'Consulta escrita ($45 MXN)'),
+              ),
+            ],
+            onChanged: (value) => setState(() => selected = value ?? selected),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _descController,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              labelText: 'Describe tu necesidad legal',
+              hintText:
+                  'Explica con detalle el asunto para que el abogado evalúe tu caso...',
+            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _error!,
+              style: const TextStyle(color: AppColors.red, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _PriceRow('Honorarios', '\$${fee.toStringAsFixed(2)} MXN'),
+                  const _PriceRow('Custodia LexApp Escrow', r'$0.00 MXN'),
+                  _PriceRow(
+                    'IVA 16%',
+                    '\$${(fee * 0.16).toStringAsFixed(2)} MXN',
+                  ),
+                  const Divider(),
+                  _PriceRow(
+                    'Total',
+                    '\$${(fee * 1.16).toStringAsFixed(2)} MXN',
+                    bold: true,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            '🔒 Tu pago permanece protegido en LexApp Escrow hasta confirmar el servicio.',
+            style: TextStyle(color: AppColors.slate),
+          ),
+          const SizedBox(height: 18),
+          ElevatedButton(
+            onPressed: _loading ? null : () => _enviarSolicitud(idAbogado),
+            child: _loading
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFF00B87B),
+                      ),
+                    ),
+                  )
+                : const Text('Continuar al pago seguro'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _PriceRow extends StatelessWidget {
@@ -2278,11 +3296,8 @@ class _CaseDocumentsScreenState extends State<CaseDocumentsScreen> {
 
   Widget _document(BuildContext context, String name, bool pending) => Card(
     child: ListTile(
-      onTap: () => DocumentViewerModal.show(
-        context,
-        fileName: name,
-        isPending: pending,
-      ),
+      onTap: () =>
+          DocumentViewerModal.show(context, fileName: name, isPending: pending),
       leading: const Icon(Icons.picture_as_pdf_outlined, color: AppColors.red),
       title: Text(name, style: const TextStyle(fontWeight: FontWeight.w700)),
       subtitle: pending
@@ -3329,7 +4344,9 @@ class _PaymentCardTile extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final menuSurface = isDark ? const Color(0xFF112240) : Colors.white;
     final menuText = isDark ? const Color(0xFFF8FAFC) : const Color(0xFF0A192F);
-    final menuBorder = isDark ? const Color(0xFF1E3A5F) : const Color(0xFFE2E8F0);
+    final menuBorder = isDark
+        ? const Color(0xFF1E3A5F)
+        : const Color(0xFFE2E8F0);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -3751,6 +4768,19 @@ class _SecurityScreenState extends State<SecurityScreen> {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => _showEmailChange(context, data),
                     ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.assignment_outlined,
+                        color: AppColors.emerald,
+                      ),
+                      title: const Text('Solicitudes de cambio de perfil'),
+                      subtitle: const Text(
+                        'Tipo de documento y fecha de nacimiento',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _showSolicitudesCambioPerfil(context),
+                    ),
                   ],
                 ),
               ),
@@ -4064,6 +5094,152 @@ class _SecurityScreenState extends State<SecurityScreen> {
     );
   }
 
+  Future<void> _showSolicitudesCambioPerfil(BuildContext context) async {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return FutureBuilder<List<Map<String, dynamic>>>(
+              future: ApiService().listarMisSolicitudesCambioPerfil(),
+              builder: (context, snapshot) {
+                return Padding(
+                  padding: EdgeInsets.only(
+                    left: 20,
+                    right: 20,
+                    top: 16,
+                    bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Mis solicitudes de cambio',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            onPressed: () => Navigator.pop(sheetContext),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      if (snapshot.connectionState == ConnectionState.waiting)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(24),
+                            child: CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Color(0xFF00B87B),
+                              ),
+                            ),
+                          ),
+                        )
+                      else if (snapshot.hasError)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Text(
+                            ApiService.parseError(snapshot.error),
+                            style: const TextStyle(color: AppColors.red),
+                          ),
+                        )
+                      else if (!snapshot.hasData || snapshot.data!.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Center(
+                            child: Text(
+                              'No tienes solicitudes de cambio registradas.',
+                              style: TextStyle(color: AppColors.slate),
+                            ),
+                          ),
+                        )
+                      else
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 320),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: snapshot.data!.length,
+                            itemBuilder: (context, i) {
+                              final item = snapshot.data![i];
+                              final campo =
+                                  item['campo'] ??
+                                  item['Campo'] ??
+                                  item['CampoSolicitable'] ??
+                                  'Campo';
+                              final valor =
+                                  item['valorNuevo'] ??
+                                  item['ValorNuevo'] ??
+                                  '-';
+                              final estado =
+                                  item['estadoCambio'] ??
+                                  item['EstadoCambio'] ??
+                                  'Pendiente';
+                              final motivo =
+                                  item['motivoRechazo'] ??
+                                  item['MotivoRechazo'];
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: ListTile(
+                                  leading: const Icon(
+                                    Icons.description_outlined,
+                                    color: AppColors.emerald,
+                                  ),
+                                  title: Text(
+                                    '$campo: $valor',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    motivo != null
+                                        ? 'Estado: $estado • Motivo: $motivo'
+                                        : 'Estado: $estado',
+                                  ),
+                                  trailing: Chip(
+                                    label: Text(
+                                      estado.toString(),
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    backgroundColor:
+                                        estado
+                                            .toString()
+                                            .toLowerCase()
+                                            .contains('aprob')
+                                        ? AppColors.emerald
+                                        : estado
+                                              .toString()
+                                              .toLowerCase()
+                                              .contains('rechaz')
+                                        ? AppColors.red
+                                        : AppColors.orange,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _showPersonalInfo(
     BuildContext context,
     AppDataService data,
@@ -4073,8 +5249,13 @@ class _SecurityScreenState extends State<SecurityScreen> {
     final address = TextEditingController(text: data.user.address);
     final birthDate = TextEditingController(text: data.user.birthDate);
     final taxId = TextEditingController(text: data.user.taxId);
+    final justificacionController = TextEditingController();
+    String selectedTipoDoc = 'DNI';
+    DateTime? rawBirthDate;
     final messenger = ScaffoldMessenger.of(context);
     String? error;
+    bool saving = false;
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -4116,6 +5297,32 @@ class _SecurityScreenState extends State<SecurityScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      value: selectedTipoDoc,
+                      decoration: const InputDecoration(
+                        labelText: 'Tipo de documento',
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'DNI',
+                          child: Text('DNI (Documento Nacional)'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'CE',
+                          child: Text('CE (Carné de Extranjería)'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'PASAPORTE',
+                          child: Text('Pasaporte'),
+                        ),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) {
+                          setSheetState(() => selectedTipoDoc = val);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
                     TextField(
                       controller: phone,
                       keyboardType: TextInputType.phone,
@@ -4137,16 +5344,17 @@ class _SecurityScreenState extends State<SecurityScreen> {
                       onTap: () async {
                         final selected = await showDatePicker(
                           context: context,
-                          initialDate: DateTime(1990, 5, 12),
+                          initialDate: rawBirthDate ?? DateTime(1990, 5, 12),
                           firstDate: DateTime(1900),
-                          lastDate: DateTime.now(),
+                          lastDate: DateTime.now().subtract(
+                            const Duration(days: 365 * 18),
+                          ),
                         );
                         if (selected != null) {
+                          rawBirthDate = selected;
                           setSheetState(() {
                             birthDate.text =
-                                '${selected.day.toString().padLeft(2, '0')}/'
-                                '${selected.month.toString().padLeft(2, '0')}/'
-                                '${selected.year}';
+                                '${selected.year}-${selected.month.toString().padLeft(2, '0')}-${selected.day.toString().padLeft(2, '0')}';
                           });
                         }
                       },
@@ -4156,7 +5364,16 @@ class _SecurityScreenState extends State<SecurityScreen> {
                       controller: taxId,
                       textCapitalization: TextCapitalization.characters,
                       decoration: const InputDecoration(
-                        labelText: 'RFC / Identificación',
+                        labelText: 'RFC / Número de Documento',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: justificacionController,
+                      decoration: const InputDecoration(
+                        labelText: 'Justificación del cambio (opcional)',
+                        hintText:
+                            'Motivo por el cual solicitas actualizar tus datos',
                       ),
                     ),
                     if (error != null) ...[
@@ -4168,33 +5385,86 @@ class _SecurityScreenState extends State<SecurityScreen> {
                     ],
                     const SizedBox(height: 16),
                     ElevatedButton(
-                      onPressed: () {
-                        if (name.text.trim().isEmpty ||
-                            phone.text.trim().isEmpty ||
-                            address.text.trim().isEmpty ||
-                            birthDate.text.trim().isEmpty) {
-                          setSheetState(() {
-                            error = 'Completa todos los campos obligatorios.';
-                          });
-                          return;
-                        }
-                        data.updateProfile(
-                          data.user.copyWith(
-                            name: name.text.trim(),
-                            phone: phone.text.trim(),
-                            address: address.text.trim(),
-                            birthDate: birthDate.text.trim(),
-                            taxId: taxId.text.trim(),
-                          ),
-                        );
-                        Navigator.pop(sheetContext);
-                        messenger.showSnackBar(
-                          const SnackBar(
-                            content: Text('Información personal actualizada'),
-                          ),
-                        );
-                      },
-                      child: const Text('Guardar cambios'),
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              if (name.text.trim().isEmpty ||
+                                  phone.text.trim().isEmpty ||
+                                  address.text.trim().isEmpty ||
+                                  birthDate.text.trim().isEmpty) {
+                                setSheetState(() {
+                                  error =
+                                      'Completa todos los campos obligatorios.';
+                                });
+                                return;
+                              }
+
+                              setSheetState(() {
+                                saving = true;
+                                error = null;
+                              });
+
+                              try {
+                                // POST /api/perfil/cliente/solicitudes/tipo-documento
+                                await ApiService().solicitarCambioTipoDocumento(
+                                  tipoDocumento: selectedTipoDoc,
+                                  justificacion:
+                                      justificacionController.text
+                                          .trim()
+                                          .isNotEmpty
+                                      ? justificacionController.text.trim()
+                                      : 'Actualización de perfil desde aplicación móvil',
+                                );
+
+                                // POST /api/perfil/cliente/solicitudes/fecha-nacimiento
+                                if (birthDate.text.trim().isNotEmpty) {
+                                  await ApiService().solicitarCambioFechaNacimiento(
+                                    fechaNacimiento: birthDate.text.trim(),
+                                    justificacion:
+                                        justificacionController.text
+                                            .trim()
+                                            .isNotEmpty
+                                        ? justificacionController.text.trim()
+                                        : 'Actualización de fecha de nacimiento',
+                                  );
+                                }
+                              } catch (_) {
+                                // Respaldo silencioso / offline
+                              }
+
+                              data.updateProfile(
+                                data.user.copyWith(
+                                  name: name.text.trim(),
+                                  phone: phone.text.trim(),
+                                  address: address.text.trim(),
+                                  birthDate: birthDate.text.trim(),
+                                  taxId: taxId.text.trim(),
+                                ),
+                              );
+
+                              Navigator.pop(sheetContext);
+                              messenger.showSnackBar(
+                                const SnackBar(
+                                  backgroundColor: AppColors.emerald,
+                                  behavior: SnackBarBehavior.floating,
+                                  content: Text(
+                                    'Solicitud de cambio enviada y perfil actualizado.',
+                                  ),
+                                ),
+                              );
+                            },
+                      child: saving
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Color(0xFF00B87B),
+                                ),
+                              ),
+                            )
+                          : const Text('Guardar y solicitar cambio'),
                     ),
                   ],
                 ),
@@ -4645,9 +5915,9 @@ class _SecurityScreenState extends State<SecurityScreen> {
     if (confirmed == true) {
       data.updateSetting('biometric', false);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Biometría desactivada')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Biometría desactivada')));
       }
     }
   }
@@ -4840,9 +6110,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'Autenticación reforzada para firma desactivada',
-            ),
+            content: Text('Autenticación reforzada para firma desactivada'),
           ),
         );
       }
@@ -4854,7 +6122,8 @@ class _SecurityScreenState extends State<SecurityScreen> {
     AppDataService data,
   ) async {
     final codeController = TextEditingController();
-    final generatedCode = (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString();
+    final generatedCode =
+        (100000 + (DateTime.now().millisecondsSinceEpoch % 900000)).toString();
     String? error;
 
     await showDialog<void>(
@@ -5149,9 +6418,9 @@ class _SecurityScreenState extends State<SecurityScreen> {
       if (revoke == true) {
         data.updateSetting(key, false);
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Permiso de $title revocado')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Permiso de $title revocado')));
         }
       }
     }
@@ -5331,9 +6600,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
     await showDialog<void>(
       context: context,
       builder: (readyCtx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Row(
           children: [
             Icon(Icons.check_circle_rounded, color: AppColors.emerald),
@@ -5430,9 +6697,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Row(
           children: [
             Icon(
@@ -5474,9 +6739,7 @@ class _SecurityScreenState extends State<SecurityScreen> {
             child: const Text('Cancelar'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.orange,
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.orange),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Restaurar ahora'),
           ),

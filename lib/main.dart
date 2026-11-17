@@ -9,6 +9,7 @@ import 'services/app_data_service.dart';
 import 'core/routes/app_routes.dart';
 import 'core/network/api_client.dart';
 import 'services/backend_repository.dart';
+import 'services/api_service.dart';
 
 void main() => runApp(const LexApp());
 
@@ -26,6 +27,7 @@ class LexApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (_) => ChatService()),
         ChangeNotifierProvider(create: (_) => AppDataService()),
+        Provider<ApiService>(create: (_) => ApiService()),
       ],
       child: Consumer<ThemeModeController>(
         builder: (context, themeController, _) => MaterialApp(

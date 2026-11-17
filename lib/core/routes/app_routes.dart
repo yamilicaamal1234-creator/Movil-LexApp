@@ -110,8 +110,9 @@ class AppRoutes {
         final regArgs = settings.arguments as Map<String, dynamic>?;
         page = OtpScreen(
           title: 'Verifica tu correo electrónico',
-          destination: shell,
+          destination: regArgs?['destination'] as String? ?? shell,
           registrationStep: true,
+          returnToLogin: regArgs?['returnToLogin'] as bool? ?? false,
           email: regArgs?['email'] as String?,
           expectedCode: regArgs?['code'] as String?,
         );

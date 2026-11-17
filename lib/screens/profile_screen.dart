@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../core/routes/app_routes.dart';
 import '../core/theme/app_colors.dart';
 import '../services/app_data_service.dart';
+import '../services/api_service.dart';
 import '../core/theme/theme_mode_controller.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -153,11 +154,16 @@ class ProfileScreen extends StatelessWidget {
               _option(context, Icons.help_outline, 'Ayuda y soporte', ''),
               const SizedBox(height: 18),
               TextButton(
-                onPressed: () => Navigator.pushNamedAndRemoveUntil(
-                  context,
-                  AppRoutes.login,
-                  (_) => false,
-                ),
+                onPressed: () async {
+                  await ApiService().clearSession();
+                  if (context.mounted) {
+                    Navigator.pushNamedAndRemoveUntil(
+                      context,
+                      AppRoutes.login,
+                      (_) => false,
+                    );
+                  }
+                },
                 child: const Text(
                   'Cerrar sesión',
                   style: TextStyle(
